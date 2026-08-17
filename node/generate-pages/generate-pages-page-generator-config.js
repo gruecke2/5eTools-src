@@ -390,6 +390,32 @@ class _PageGeneratorStatgen extends PageGeneratorGeneric {
 	];
 }
 
+class _PageGeneratorCharacters extends PageGeneratorGeneric {
+	_filename = "page/template-page-characters.hbs";
+	_page = UrlUtil.PG_CHARACTERS;
+
+	_pageTitle = "Character Sheet";
+	_navbarDescription = "Import stats, pick a class, and keep a playable sheet.";
+
+	_isFontAwesome = true;
+	_stylesheets = [
+		"characters-bundle",
+	];
+
+	_scriptsUtilsAdditional = [
+		"filter-common.js",
+		"filter-races.js",
+		"filter-backgrounds.js",
+		"filter-feats.js",
+		"filter-items.js",
+		"filter-classes.js",
+	];
+
+	_scriptsModules = [
+		"characters.js",
+	];
+}
+
 export const PAGE_GENERATORS = 	[
 	...PAGE_GENERATORS_LISTPAGE,
 	...PAGE_GENERATORS_REDIRECT,
@@ -402,6 +428,7 @@ export const PAGE_GENERATORS = 	[
 	new _PageGeneratorDmscreen(),
 	new _PageGeneratorBlocklist(),
 	new _PageGeneratorChangelog(),
+	new _PageGeneratorCharacters(),
 	new _PageGeneratorConverter(),
 	new _PageGeneratorCrcalculator(),
 	new _PageGeneratorIndex(),

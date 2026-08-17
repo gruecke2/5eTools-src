@@ -191,6 +191,36 @@ export class StatGenUi extends BaseComponent {
 	_getTotals_manual () { return Parser.ABIL_ABVS.mergeMap(ab => ({[ab]: this._manual_getTotalScore(ab)})); }
 	_getTotals_levelUp () { return Parser.ABIL_ABVS.mergeMap(ab => ({[ab]: this._levelUp_getTotalScore(ab)})); }
 
+	getCharacterSheetExport () {
+		const abilities = Parser.ABIL_ABVS.mergeMap(ab => ({[ab]: this._state[`common_export_${ab}`]}));
+
+		const race = this.race;
+		const background = this.background;
+		const formDataAsi = this.getFormDataAsi();
+
+		const featHashes = [];
+		const seen = new Set();
+		for (const metas of Object.values(formDataAsi.feats)) {
+			for (const meta of metas) {
+				if (!meta?.uid) continue;
+				const {name, source} = DataUtil.proxy.unpackUid("feat", meta.uid, "feat", {isLower: true});
+				const feat = this._feats.find(it => it.name.toLowerCase() === name && it.source.toLowerCase() === source);
+				if (!feat) continue;
+				const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_FEATS](feat);
+				if (seen.has(hash)) continue;
+				seen.add(hash);
+				featHashes.push(hash);
+			}
+		}
+
+		return {
+			abilities,
+			raceHash: race ? UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_RACES](race) : null,
+			backgroundHash: background ? UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_BACKGROUNDS](background) : null,
+			featHashes,
+		};
+	}
+
 	addHook (hookProp, prop, hook) { return this._addHook(hookProp, prop, hook); }
 	addHookAll (hookProp, hook) {
 		this._addHookAll(hookProp, hook);

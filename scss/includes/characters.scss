@@ -1,0 +1,324 @@
+@use "../vars/vars";
+
+
+
+@layer vetools {
+
+	.ve-charsheet {
+
+		gap: 12px;
+
+
+
+		&__col {
+
+			min-width: 0;
+
+			min-height: 0;
+
+		}
+
+
+
+		&__panel {
+
+			border: 1px solid vars.$rgb-border-grey;
+
+			border-radius: 5px;
+
+			background: vars.$rgb-bg;
+
+		}
+
+
+
+		&__ipt-score {
+
+			width: 42px;
+
+			height: 24px;
+
+		}
+
+
+
+		&__roller {
+
+			min-width: 2.4rem;
+
+		}
+
+
+
+		&__abilities-row {
+
+			display: grid;
+
+			grid-template-columns: repeat(6, minmax(0, 1fr));
+
+			gap: 8px;
+
+		}
+
+
+
+		&__ability-block {
+
+			display: flex;
+
+			flex-direction: column;
+
+			align-items: center;
+
+			min-width: 0;
+
+			text-align: center;
+
+		}
+
+
+
+		&__stats-sub {
+
+			display: flex;
+
+			flex-wrap: wrap;
+
+			gap: 12px 16px;
+
+			align-items: flex-start;
+
+			margin-top: 12px;
+
+			padding-top: 12px;
+
+			border-top: 1px solid vars.$rgb-border-grey--trans;
+
+		}
+
+
+
+		&__stats-sub-label {
+
+			font-weight: bold;
+
+			font-size: 0.85em;
+
+			margin-bottom: 4px;
+
+			width: 100%;
+
+		}
+
+
+
+		&__stats-sub-block {
+
+			min-width: 0;
+
+		}
+
+
+
+		&__stats-sub-saves {
+
+			flex: 1 1 200px;
+
+		}
+
+
+
+		&__stats-sub-combat {
+
+			flex: 0 1 auto;
+
+		}
+
+
+
+		&__saves-row {
+
+			display: flex;
+
+			flex-wrap: wrap;
+
+			gap: 4px 10px;
+
+		}
+
+
+
+		&__save-chip {
+
+			flex: 0 0 auto;
+
+			white-space: nowrap;
+
+
+
+			.ve-charsheet__roller {
+
+				min-width: 2rem;
+
+			}
+
+		}
+
+
+
+		&__combat-row {
+
+			display: flex;
+
+			flex-wrap: wrap;
+
+			gap: 8px 12px;
+
+			align-items: center;
+
+		}
+
+
+
+		&__combat-field {
+
+			flex: 0 0 auto;
+
+			white-space: nowrap;
+
+		}
+
+
+
+		&__skills-grid {
+
+			column-count: 2;
+
+			column-gap: 16px;
+
+
+
+			> * {
+
+				break-inside: avoid;
+
+			}
+
+		}
+
+
+
+		&__wrp-features {
+			min-height: 0;
+			height: 100%;
+
+			.ve-ui-tab__wrp-tab-heads--border {
+				flex-wrap: wrap;
+			}
+
+			.ve-ui-tab__wrp-tab-body {
+				min-height: 0;
+			}
+
+			.ve-ui-tab__btn-tab-head {
+				flex: 1 1 auto;
+			}
+		}
+
+		&__widget-name {
+			width: 72px;
+		}
+
+		&__widget-num {
+			width: 42px;
+		}
+
+		&__widget-formula {
+			width: 72px;
+		}
+
+		&__widget-pip {
+			width: 16px;
+			height: 16px;
+			padding: 0;
+			margin-right: 2px;
+		}
+
+		&__widget-tag {
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		&__feature {
+
+			border-bottom: 1px solid vars.$rgb-border-grey--trans;
+
+
+
+			&:last-child {
+
+				border-bottom: none;
+
+			}
+
+		}
+
+
+
+		&__wrp-scroll {
+
+			min-height: 0;
+
+			overflow-y: auto;
+
+		}
+
+	}
+
+
+
+	@media screen and (width <= #{vars.$width-screen-md}) {
+
+		.ve-charsheet {
+
+			flex-direction: column;
+
+			overflow: auto;
+
+			height: auto;
+
+			max-height: none;
+
+
+
+			&__abilities-row {
+
+				grid-template-columns: repeat(3, minmax(0, 1fr));
+
+			}
+
+
+
+			&__stats-sub {
+
+				flex-direction: column;
+
+			}
+
+
+
+			&__skills-grid {
+
+				column-count: 1;
+
+			}
+
+		}
+
+	}
+
+}
+
+

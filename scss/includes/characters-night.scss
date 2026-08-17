@@ -1,0 +1,18 @@
+@use "../vars/vars-night";
+
+@layer vetools {
+	.ve-night-mode .ve-charsheet {
+		&__panel {
+			background-color: vars-night.$rgb-bg--night;
+			border-color: vars-night.$rgb-border-grey--night;
+		}
+
+		&__feature {
+			border-bottom-color: vars-night.$rgb-border-grey--trans-night;
+		}
+
+		&__stats-sub {
+			border-top-color: vars-night.$rgb-border-grey--trans-night;
+		}
+	}
+}

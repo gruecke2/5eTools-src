@@ -2,6 +2,7 @@ import {StatGenUi} from "./statgen/statgen-ui.js";
 import {VetoolsConfig} from "./utils-config/utils-config-config.js";
 import {UtilsEntityBackground} from "./utils/utils-entity-background.js";
 import {UtilsEntityRace} from "./utils/utils-entity-race.js";
+import {CHARACTERS_STORAGE_KEY_PENDING_IMPORT} from "./characters/characters-const.js";
 
 class StatGenPage {
 	constructor () {
@@ -86,6 +87,19 @@ class StatGenPage {
 							const encoded = `${window.location.href.split("#")[0]}#pointbuy${HASH_PART_SEP}${encodeURIComponent(JSON.stringify(this._statGenUi.getSaveableState()))}`;
 							await MiscUtil.pCopyTextToClipboard(encoded);
 							JqueryUtil.showCopiedEffect(btn);
+						},
+					},
+				],
+			}),
+			new TabUiUtil.TabMeta({
+				type: "buttons",
+				buttons: [
+					{
+						html: `<span class="glyphicon glyphicon-list-alt"></span>`,
+						title: "Send to Character Sheet",
+						pFnClick: async () => {
+							await StorageUtil.pSet(CHARACTERS_STORAGE_KEY_PENDING_IMPORT, this._statGenUi.getCharacterSheetExport());
+							window.location = UrlUtil.PG_CHARACTERS;
 						},
 					},
 				],
