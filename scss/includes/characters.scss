@@ -188,6 +188,42 @@
 
 		}
 
+		&__ipt-hp {
+			width: 52px;
+		}
+
+		&__resist-toggles {
+			display: grid;
+			grid-template-columns: repeat(7, minmax(0, 1fr));
+			gap: 3px;
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+
+		&__resist-toggle {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 1px;
+			min-width: 0;
+			height: auto;
+			padding: 3px 2px;
+			line-height: 1.1;
+		}
+
+		&__resist-icon {
+			font-size: 0.95em;
+		}
+
+		&__resist-label {
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			font-size: 0.7em;
+			font-weight: bold;
+		}
+
 
 
 		&__skills-grid {
@@ -220,6 +256,12 @@
 				min-height: 0;
 			}
 
+			.ve-ui-tab__wrp-tab-body.ve-charsheet__spell-tab {
+				display: flex;
+				flex-direction: column;
+				overflow: hidden;
+			}
+
 			.ve-ui-tab__btn-tab-head {
 				flex: 1 1 auto;
 			}
@@ -249,6 +291,192 @@
 			overflow: hidden;
 			text-overflow: ellipsis;
 			white-space: nowrap;
+		}
+
+		&__prof-toggles {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 4px 12px;
+		}
+
+		&__prof-toggle {
+			flex: 0 0 auto;
+			white-space: nowrap;
+		}
+
+		&__prof-section {
+			&:not(:last-child) {
+				margin-bottom: 12px;
+				padding-bottom: 12px;
+				border-bottom: 1px solid vars.$rgb-border-grey--trans;
+			}
+		}
+
+		&__prof-sub-label {
+			font-size: 0.85em;
+		}
+
+		&__prof-auto {
+			line-height: 1.35;
+		}
+
+		&__prof-extra-row {
+			&:last-child {
+				margin-bottom: 0 !important;
+			}
+		}
+
+		&__spell-slot-max {
+			width: 36px;
+		}
+
+		&__spell-abil {
+			width: 52px;
+		}
+
+		&__spell-block-sel {
+			width: 72px;
+		}
+
+		&__spell-block {
+			flex-wrap: wrap;
+			gap: 4px;
+		}
+
+		&__spell-tab {
+			flex: 1 1 0;
+			height: 0;
+			overflow: hidden;
+		}
+
+		&__spell-content {
+			flex: 1 1 0;
+			height: 0;
+			min-height: 0;
+		}
+
+		&__spell-body {
+			flex: 1 1 0;
+			height: 0;
+			min-height: 0;
+			gap: 8px;
+		}
+
+		&__spell-ready {
+			padding-right: 34px;
+		}
+
+		&__spell-library-drawer {
+			position: absolute;
+			inset: 0 0 0 auto;
+			z-index: 2;
+			display: flex;
+			flex-direction: column;
+			width: 280px;
+			max-width: calc(100% - 34px);
+			transform: translateX(100%);
+			transition: transform 0.2s ease;
+			box-shadow: none;
+			pointer-events: none;
+
+			&--open {
+				transform: translateX(0);
+				box-shadow: -4px 0 12px rgb(0 0 0 / 12%);
+				pointer-events: auto;
+			}
+		}
+
+		&__spell-library-tab {
+			position: absolute;
+			left: 0;
+			top: 50%;
+			z-index: 1;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 4px;
+			width: 32px;
+			padding: 8px 4px;
+			line-height: 1;
+			border-radius: 5px 0 0 5px;
+			transform: translate(-100%, -50%);
+			pointer-events: auto;
+			background: vars.$rgb-active-blue;
+			border-color: vars.$rgb-active-blue--dark;
+			color: #fff;
+
+			&:hover,
+			&:focus {
+				background: vars.$rgb-active-blue--dark;
+				color: #fff;
+			}
+
+			&--open {
+				background: vars.$rgb-active-blue--dark;
+				box-shadow: -2px 0 6px rgb(0 0 0 / 15%);
+			}
+		}
+
+		&__spell-library-tab-label {
+			writing-mode: vertical-rl;
+			text-orientation: mixed;
+			font-size: 0.85em;
+			font-weight: bold;
+		}
+
+		&__spell-library {
+			display: flex;
+			flex: 1 1 0;
+			flex-direction: column;
+			height: 100%;
+			padding: 6px;
+			min-height: 0;
+			overflow: hidden;
+			border-top-right-radius: 0;
+			border-bottom-right-radius: 0;
+		}
+
+		&__spell-name {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		&__spell-ready-row {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 6px 10px;
+			padding: 3px 0;
+			font-size: 0.9em;
+			border-bottom: 1px solid vars.$rgb-border-grey--trans;
+		}
+
+		&__spell-lib-row {
+			gap: 4px;
+		}
+
+		&__spell-meta {
+			flex: 0 0 auto;
+			white-space: nowrap;
+			font-size: 0.85em;
+		}
+
+		&__spell-badges {
+			display: inline-flex;
+			gap: 3px;
+		}
+
+		&__spell-badge {
+			display: inline-block;
+			min-width: 1.1em;
+			padding: 0 3px;
+			font-size: 0.75em;
+			font-weight: bold;
+			text-align: center;
+			border: 1px solid vars.$rgb-border-grey--trans;
+			border-radius: 2px;
 		}
 
 		&__feature {

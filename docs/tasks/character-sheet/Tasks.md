@@ -23,13 +23,14 @@ A playable in-site sheet that snapshot-imports Stat Generator output, then lets 
 - [x] Features column as top `TabUiUtil` tabs (Class / Subclass / Species / Background / Feats / Custom); empty auto tabs hidden
 - [x] Skill proficiency 4-state cycler (none / proficient / expertise / half)
 - [x] User-attached feature widgets: counter, pips, number, rollable, reference (auto and custom features)
+- [x] Other Proficiencies panel: weapons & armor toggles (simple / martial / shields / light / medium / heavy), languages, tools (auto from structured class/species/background/feat data + custom entries)
+- [x] Spellcasting tab: attack/DC blocks, auto slot pips (or Warlock pact), known/prepared/2014 Wizard book list, add via spell picker
 
 ## Deferred (do not fake)
 
 Keep these as state stubs / UI notes until a later pass:
 
-- [ ] Multiclass (`classes` array; MVP uses single `className` / `classSource`)
-- [ ] Spellcasting (`spellcasting`)
+- [ ] Multiclass (`classes` array; MVP uses single `className` / `classSource`; no combined slot math)
 - [ ] Dynamic HP (`hpFormula`)
 - [ ] Equipped items (`inventory[].equipped`)
 - [ ] Optional feature pickers: fighting styles, invocations, maneuvers (`optionalFeatureUids`)
@@ -37,3 +38,5 @@ Keep these as state stubs / UI notes until a later pass:
 - [ ] Auto-seeding widgets onto named features (Second Wind, Ki, etc.)
 - [ ] Live Statgen sync (import is a snapshot)
 - [ ] Multiple named characters
+- [ ] Other proficiencies: resolving player choices (`choose` blocks, e.g. background languages/tools, class tool picks); proficiencies granted only in feature entry text without structured fields; subclass-specific grants not on the class `startingProficiencies` object
+- [ ] Spellcasting: feat `additionalSpells` auto-seed; Warlock short-rest slot refill; spell-points variant; auto-spend slots on Cast; ritual/always-prepared enforcement

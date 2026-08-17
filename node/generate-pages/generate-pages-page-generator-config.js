@@ -409,6 +409,7 @@ class _PageGeneratorCharacters extends PageGeneratorGeneric {
 		"filter-feats.js",
 		"filter-items.js",
 		"filter-classes.js",
+		"filter-spells.js",
 	];
 
 	_scriptsModules = [

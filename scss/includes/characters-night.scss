@@ -1,3 +1,4 @@
+@use "sass:color";
 @use "../vars/vars-night";
 
 @layer vetools {
@@ -13,6 +14,32 @@
 
 		&__stats-sub {
 			border-top-color: vars-night.$rgb-border-grey--trans-night;
+		}
+
+		&__prof-section {
+			border-bottom-color: vars-night.$rgb-border-grey--trans-night;
+		}
+
+		&__spell-library-drawer--open {
+			box-shadow: -4px 0 12px rgb(0 0 0 / 35%);
+		}
+
+		&__spell-library-tab {
+			background: vars-night.$rgb-btn-primary-blue--night;
+			border-color: vars-night.$rgb-border-grey--night;
+			color: #fff;
+
+			&:hover,
+			&:focus,
+			&--open {
+				background: color.adjust(vars-night.$rgb-btn-primary-blue--night, $lightness: 8%);
+				color: #fff;
+			}
+		}
+
+		&__spell-ready-row,
+		&__spell-badge {
+			border-color: vars-night.$rgb-border-grey--trans-night;
 		}
 	}
 }

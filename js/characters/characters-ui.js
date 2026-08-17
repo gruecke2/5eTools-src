@@ -9,15 +9,22 @@ import {
 	FEATURE_SECTION_TAB_TITLES,
 	FEATURE_SECTIONS,
 	FEATURE_SECTIONS_AUTO,
+	ARMOR_WEAPON_PROF_DEFS,
+	awpToProp,
+	DAMAGE_TYPE_UI,
 	getSkills,
 	migrateSkillProf,
 	saveToProp,
 	SKILL_PROF_MULT,
 	skillToProp,
+	TAB_SPELLCASTING_TITLE,
 } from "./characters-const.js";
 import {CharactersFeatureCollector} from "./characters-features.js";
 import {CharactersCustomFeatureCollection, CharactersInventoryCollection} from "./characters-inventory.js";
+import {CharactersProficienciesCollector} from "./characters-proficiencies.js";
+import {CharactersSpellcasting, CharactersSpellcastingPanel} from "./characters-spellcasting.js";
 import {CharactersFeatureWidgets} from "./characters-widgets.js";
+import {InitiativeTrackerUtil} from "../initiativetracker/initiativetracker-utils.js";
 
 export class CharactersUi extends BaseComponent {
 	constructor (
@@ -26,6 +33,7 @@ export class CharactersUi extends BaseComponent {
 			backgrounds,
 			feats,
 			items,
+			spells,
 		},
 	) {
 		super();
@@ -36,11 +44,15 @@ export class CharactersUi extends BaseComponent {
 		this._backgrounds = backgrounds;
 		this._feats = feats;
 		this._items = items;
+		this._spellsByUid = new Map(
+			(spells || []).map(sp => [`${sp.name}|${sp.source}`.toLowerCase(), sp]),
+		);
 
 		this._modalFilterRaces = new ModalFilterRaces({namespace: "characters.races", isRadio: true, allData: races});
 		this._modalFilterBackgrounds = new ModalFilterBackgrounds({namespace: "characters.backgrounds", isRadio: true, allData: backgrounds});
 		this._modalFilterClasses = new ModalFilterClasses({namespace: "characters.classes"});
 		this._modalFilterItems = new ModalFilterItems({namespace: "characters.items", allData: items});
+		this._modalFilterSpells = new ModalFilterSpells({namespace: "characters.spells", allData: spells});
 
 		this._loadedClass = null;
 		this._loadedClassIdent = null;
@@ -48,6 +60,15 @@ export class CharactersUi extends BaseComponent {
 		this._loadedSubclassIdent = null;
 		this._featureRenderToken = 0;
 		this._featureTabMetas = null;
+		this._tabMetaSpellcasting = null;
+		this._ixTabSpellcasting = null;
+		this._ixTabCustom = null;
+		this._spellcastingIdent = null;
+		this._spellcastingMode = "known";
+		this._spellcastingHint = "";
+		this._spellcastingIsCaster = false;
+		this._spellcastingSpellListClass = null;
+		this._isSpellLibraryOpen = false;
 
 		this._collectionInventory = null;
 		this._collectionCustomFeatures = null;
@@ -59,6 +80,7 @@ export class CharactersUi extends BaseComponent {
 			this._modalFilterBackgrounds.pPopulateHiddenWrapper(),
 			this._modalFilterClasses.pPopulateHiddenWrapper(),
 			this._modalFilterItems.pPopulateHiddenWrapper(),
+			this._modalFilterSpells.pPopulateHiddenWrapper(),
 		]);
 	}
 
@@ -79,6 +101,19 @@ export class CharactersUi extends BaseComponent {
 				const prop = skillToProp(skill);
 				if (prop in toLoad.state || isOverwrite) toLoad.state[prop] = migrateSkillProf(toLoad.state[prop]);
 			});
+			if (!toLoad.state.otherProficienciesExtra) {
+				toLoad.state.otherProficienciesExtra = {
+					weapons: [],
+					languages: [],
+					tools: [],
+				};
+			}
+			ARMOR_WEAPON_PROF_DEFS.forEach(({id}) => {
+				const prop = awpToProp(id);
+				if (!(prop in toLoad.state)) toLoad.state[prop] = false;
+			});
+			toLoad.state.spellcasting = CharactersSpellcasting.migrate(toLoad.state.spellcasting);
+			if (!Array.isArray(toLoad.state.resistances)) toLoad.state.resistances = [];
 		}
 		super.setStateFrom(toLoad, isOverwrite);
 		if (toLoad.meta) this._proxyAssignSimple("meta", toLoad.meta, true);
@@ -92,6 +127,8 @@ export class CharactersUi extends BaseComponent {
 		if (this._state.featHashes?.length) return true;
 		if (this._state.inventory?.length) return true;
 		if (this._state.customFeatures?.length) return true;
+		const sc = CharactersSpellcasting.migrate(this._state.spellcasting);
+		if (sc.blocks.length || sc.spells.length) return true;
 		return false;
 	}
 
@@ -108,6 +145,7 @@ export class CharactersUi extends BaseComponent {
 		if (snapshot.backgroundHash !== undefined) nxt.backgroundHash = snapshot.backgroundHash;
 		if (snapshot.featHashes !== undefined) nxt.featHashes = MiscUtil.copyFast(snapshot.featHashes || []);
 		this._proxyAssignSimple("state", nxt);
+		this._pApplyAutoArmorWeaponProfs().then(null);
 	}
 
 	async doResetAll () {
@@ -123,6 +161,8 @@ export class CharactersUi extends BaseComponent {
 		this._loadedClassIdent = null;
 		this._loadedSubclass = null;
 		this._loadedSubclassIdent = null;
+		this._spellcastingIdent = null;
+		this._spellcastingIsCaster = false;
 	}
 
 	getPb () {
@@ -289,6 +329,7 @@ export class CharactersUi extends BaseComponent {
 			${this._render_identity()}
 			${this._render_abilities()}
 			${this._render_skills()}
+			${this._render_otherProficiencies()}
 			${this._render_inventory()}
 		</div>`;
 	}
@@ -361,6 +402,7 @@ export class CharactersUi extends BaseComponent {
 						subclassSource: null,
 					},
 				);
+				this._pApplyAutoArmorWeaponProfs().then(null);
 			});
 		const hkHasClass = () => btnClearClass.vee.toggle(!!this._state.className);
 		this._addHookBase("className", hkHasClass);
@@ -511,24 +553,53 @@ export class CharactersUi extends BaseComponent {
 	}
 
 	_render_combatInner () {
-		const iptHpCurrent = ComponentUiUtil.getIptInt(
+		const hpOpts = {
+			isAllowNull: true,
+			fallbackOnNaN: null,
+		};
+		const iptHpCurrent = ComponentUiUtil.getIptNumber(
 			this,
 			"hpCurrent",
 			null,
 			{
-				isAllowNull: true,
-				html: `<input class="ve-form-control ve-input-xs form-control--minimal ve-text-center" type="number" placeholder="—" style="width: 52px;" title="Current HP">`,
+				...hpOpts,
+				html: `<input class="ve-form-control ve-input-xs form-control--minimal ve-text-center ve-charsheet__ipt-hp" type="text" inputmode="decimal" placeholder="—" title="Current HP. Type +5 / -10 / =20 to adjust.">`,
 			},
-		);
-		const iptHpMax = ComponentUiUtil.getIptInt(
+		)
+			.vee.onn("click", () => iptHpCurrent.select());
+		const iptHpMax = ComponentUiUtil.getIptNumber(
 			this,
 			"hpMax",
 			null,
 			{
-				isAllowNull: true,
-				html: `<input class="ve-form-control ve-input-xs form-control--minimal ve-text-center" type="number" placeholder="—" style="width: 52px;" title="Max HP">`,
+				...hpOpts,
+				html: `<input class="ve-form-control ve-input-xs form-control--minimal ve-text-center ve-charsheet__ipt-hp" type="text" inputmode="decimal" placeholder="—" title="Max HP. Type +5 / -10 / =20 to adjust.">`,
 			},
-		);
+		)
+			.vee.onn("click", () => iptHpMax.select());
+
+		const hkHpColors = () => {
+			const cur = this._state.hpCurrent;
+			const max = this._state.hpMax;
+			if (cur == null || max == null || !max) {
+				iptHpCurrent.vee.css({"color": ""});
+				iptHpMax.vee.css({"color": ""});
+				return;
+			}
+			const woundLevel = InitiativeTrackerUtil.getWoundLevel(100 * cur / max);
+			if (~woundLevel) {
+				const {color} = InitiativeTrackerUtil.getWoundMeta(woundLevel);
+				iptHpCurrent.vee.css({"color": color});
+				iptHpMax.vee.css({"color": color});
+			} else {
+				iptHpCurrent.vee.css({"color": ""});
+				iptHpMax.vee.css({"color": ""});
+			}
+		};
+		this._addHookBase("hpCurrent", hkHpColors);
+		this._addHookBase("hpMax", hkHpColors);
+		hkHpColors();
+
 		const iptAc = ComponentUiUtil.getIptStr(
 			this,
 			"ac",
@@ -554,23 +625,58 @@ export class CharactersUi extends BaseComponent {
 		this._addHookBase("classSource", hkHitDice);
 		hkHitDice().then(null);
 
-		return veT`<div class="ve-charsheet__combat-row">
-			<div class="ve-flex-v-center ve-charsheet__combat-field">
-				<div class="ve-mr-1 ve-small ve-no-shrink">HP</div>
-				${iptHpCurrent}
-				<div class="ve-mx-1 ve-muted">/</div>
-				${iptHpMax}
+		const wrpResist = veT`<div class="ve-charsheet__resist-toggles"></div>`;
+		const resistBtns = Parser.DMG_TYPES.map(typ => {
+			const meta = DAMAGE_TYPE_UI[typ] || {label: typ.toTitleCase(), icon: "fa-shield"};
+			const btn = veT`<button class="ve-btn ve-btn-xxs ve-btn-default ve-charsheet__resist-toggle" title="${typ.toTitleCase()}">
+				<span class="fal ${meta.icon.qq()} ve-charsheet__resist-icon"></span>
+				<span class="ve-charsheet__resist-label">${meta.label.qq()}</span>
+			</button>`
+				.vee.onn("click", () => this._toggleResistance(typ));
+			wrpResist.vee.appends(btn);
+			return {typ, btn};
+		});
+		const hkResist = () => {
+			const selected = new Set(this._state.resistances || []);
+			resistBtns.forEach(({typ, btn}) => {
+				const isOn = selected.has(typ);
+				btn.vee.toggleClass("ve-btn-primary", isOn).vee.toggleClass("ve-btn-default", !isOn);
+			});
+		};
+		this._addHookBase("resistances", hkResist);
+		hkResist();
+
+		return veT`<div class="ve-flex-col ve-w-100">
+			<div class="ve-charsheet__combat-row">
+				<div class="ve-flex-v-center ve-charsheet__combat-field">
+					<div class="ve-mr-1 ve-small ve-no-shrink">HP</div>
+					${iptHpCurrent}
+					<div class="ve-mx-1 ve-muted">/</div>
+					${iptHpMax}
+				</div>
+				<div class="ve-flex-v-center ve-charsheet__combat-field">
+					<div class="ve-mr-1 ve-small ve-no-shrink">AC</div>
+					${iptAc}
+				</div>
+				<div class="ve-flex-v-center ve-charsheet__combat-field">
+					<div class="ve-mr-1 ve-small ve-no-shrink">Spd</div>
+					${iptSpeed}
+				</div>
+				${dispHitDice}
 			</div>
-			<div class="ve-flex-v-center ve-charsheet__combat-field">
-				<div class="ve-mr-1 ve-small ve-no-shrink">AC</div>
-				${iptAc}
+			<div class="ve-flex-v-top ve-charsheet__combat-row ve-mt-1">
+				<div class="ve-mr-1 ve-small ve-no-shrink ve-pt-1" title="Damage resistances">Resist</div>
+				${wrpResist}
 			</div>
-			<div class="ve-flex-v-center ve-charsheet__combat-field">
-				<div class="ve-mr-1 ve-small ve-no-shrink">Spd</div>
-				${iptSpeed}
-			</div>
-			${dispHitDice}
 		</div>`;
+	}
+
+	_toggleResistance (typ) {
+		const cur = [...(this._state.resistances || [])];
+		const ix = cur.indexOf(typ);
+		if (~ix) cur.splice(ix, 1);
+		else cur.push(typ);
+		this._state.resistances = cur;
 	}
 
 	_render_skills () {
@@ -609,6 +715,129 @@ export class CharactersUi extends BaseComponent {
 		</div>`;
 	}
 
+	_render_otherProficiencies () {
+		const wrpAutoWeapons = veT`<div class="ve-charsheet__prof-auto ve-min-w-0"></div>`;
+		const wrpAutoLanguages = veT`<div class="ve-charsheet__prof-auto ve-min-w-0"></div>`;
+		const wrpAutoTools = veT`<div class="ve-charsheet__prof-auto ve-min-w-0"></div>`;
+		const wrpExtraWeapons = veT`<div class="ve-flex-col ve-charsheet__prof-extra"></div>`;
+		const wrpExtraLanguages = veT`<div class="ve-flex-col ve-charsheet__prof-extra"></div>`;
+		const wrpExtraTools = veT`<div class="ve-flex-col ve-charsheet__prof-extra"></div>`;
+
+		const wrpToggles = veT`<div class="ve-charsheet__prof-toggles ve-mb-2"></div>`;
+		ARMOR_WEAPON_PROF_DEFS.forEach(({id, label}) => {
+			const cb = ComponentUiUtil.getCbBool(this, awpToProp(id));
+			wrpToggles.vee.appends(veT`<label class="ve-flex-v-center ve-no-select ve-charsheet__prof-toggle">
+				<div class="ve-mr-1">${cb}</div>
+				<div class="ve-small">${label}</div>
+			</label>`);
+		});
+
+		const hkAuto = async () => {
+			const auto = await CharactersProficienciesCollector.pCollectAuto({
+				cls: await this._pGetClass(),
+				race: this._getRace(),
+				background: this._getBackground(),
+				feats: this._getFeats().map(it => it.feat),
+			});
+			wrpAutoWeapons.vee.html(CharactersProficienciesCollector.renderProfListHtml(auto.weaponsExtra, {emptyText: "No additional weapon or armor proficiencies"}));
+			wrpAutoLanguages.vee.html(CharactersProficienciesCollector.renderProfListHtml(auto.languages, {emptyText: "None from class, species, background, or feats"}));
+			wrpAutoTools.vee.html(CharactersProficienciesCollector.renderProfListHtml(auto.tools, {emptyText: "None from class, species, background, or feats"}));
+		};
+
+		const profHooks = [
+			"className",
+			"classSource",
+			"subclassName",
+			"subclassShortName",
+			"subclassSource",
+			"raceHash",
+			"backgroundHash",
+			"featHashes",
+		];
+		profHooks.forEach(prop => this._addHookBase(prop, () => hkAuto().then(null)));
+		hkAuto().then(null);
+
+		const renderExtra = (wrp, prop) => {
+			wrp.vee.empty();
+			const entries = this._state.otherProficienciesExtra?.[prop] || [];
+			if (!entries.length) {
+				wrp.vee.html(`<span class="ve-muted ve-italic">None</span>`);
+				return;
+			}
+			entries.forEach(entry => {
+				const disp = veT`<div class="ve-flex-grow-1 ve-min-w-0"></div>`;
+				const text = entry.text || "";
+				if (text.startsWith("{@")) disp.vee.html(Renderer.get().render(text));
+				else disp.vee.txt(text);
+
+				const btnRemove = veT`<button class="ve-btn ve-btn-xxs ve-btn-danger" title="Remove"><span class="glyphicon glyphicon-trash"></span></button>`
+					.vee.onn("click", () => {
+						const nxt = MiscUtil.copyFast(this._state.otherProficienciesExtra || {});
+						nxt[prop] = (nxt[prop] || []).filter(it => it.id !== entry.id);
+						this._state.otherProficienciesExtra = nxt;
+					});
+
+				wrp.vee.appends(veT`<div class="ve-flex-v-center ve-mb-1 ve-charsheet__prof-extra-row">${disp}${btnRemove}</div>`);
+			});
+		};
+
+		const hkExtra = () => {
+			renderExtra(wrpExtraWeapons, "weapons");
+			renderExtra(wrpExtraLanguages, "languages");
+			renderExtra(wrpExtraTools, "tools");
+		};
+		this._addHookBase("otherProficienciesExtra", hkExtra);
+		hkExtra();
+
+		const getBtnAdd = prop => veT`<button class="ve-btn ve-btn-xxs ve-btn-default" title="Add custom entry"><span class="glyphicon glyphicon-plus"></span></button>`
+			.vee.onn("click", () => this._pAddOtherProficiency(prop));
+
+		const getSection = ({label, wrpAuto, wrpExtra, prop, extraTop}) => veT`<div class="ve-charsheet__prof-section">
+			<div class="ve-flex-v-center ve-mb-1">
+				<div class="ve-bold ve-flex-grow-1">${label}</div>
+				${getBtnAdd(prop)}
+			</div>
+			${extraTop || ""}
+			<div class="ve-charsheet__prof-sub-label ve-muted ve-small ve-mb-1">From class, species, background, and feats</div>
+			${wrpAuto}
+			<div class="ve-charsheet__prof-sub-label ve-muted ve-small ve-mt-2 ve-mb-1">Custom</div>
+			${wrpExtra}
+		</div>`;
+
+		return veT`<div class="ve-charsheet__panel ve-p-2 ve-mb-2">
+			<div class="ve-bold ve-mb-2">Other Proficiencies</div>
+			${getSection({label: "Weapons & Armor", wrpAuto: wrpAutoWeapons, wrpExtra: wrpExtraWeapons, prop: "weapons", extraTop: wrpToggles})}
+			${getSection({label: "Languages", wrpAuto: wrpAutoLanguages, wrpExtra: wrpExtraLanguages, prop: "languages"})}
+			${getSection({label: "Tools", wrpAuto: wrpAutoTools, wrpExtra: wrpExtraTools, prop: "tools"})}
+		</div>`;
+	}
+
+	async _pApplyAutoArmorWeaponProfs () {
+		const auto = await CharactersProficienciesCollector.pCollectAuto({
+			cls: await this._pGetClass(),
+			race: this._getRace(),
+			background: this._getBackground(),
+			feats: this._getFeats().map(it => it.feat),
+		});
+		const nxt = {};
+		ARMOR_WEAPON_PROF_DEFS.forEach(({id}) => {
+			nxt[awpToProp(id)] = !!auto.toggles[id];
+		});
+		this._proxyAssignSimple("state", nxt);
+	}
+
+	async _pAddOtherProficiency (prop) {
+		const text = await InputUiUtil.pGetUserString({
+			title: "Add Proficiency",
+			placeholder: "e.g. Martial weapons",
+		});
+		if (text == null || typeof text === "symbol" || !`${text}`.trim()) return;
+
+		const nxt = MiscUtil.copyFast(this._state.otherProficienciesExtra || {weapons: [], languages: [], tools: []});
+		nxt[prop] = [...(nxt[prop] || []), {id: CryptUtil.uid(), text: `${text}`.trim()}];
+		this._state.otherProficienciesExtra = nxt;
+	}
+
 	_render_inventory () {
 		const wrpRows = veT`<div class="ve-flex-col ve-w-100"></div>`;
 		this._collectionInventory = new CharactersInventoryCollection(this, wrpRows, this._items);
@@ -631,12 +860,25 @@ export class CharactersUi extends BaseComponent {
 	_render_features () {
 		const wrp = veT`<div class="ve-flex-col ve-w-100 ve-h-100 ve-min-h-0 ve-charsheet__wrp-features"></div>`;
 
+		this._ixTabSpellcasting = FEATURE_SECTIONS_AUTO.length;
+		this._ixTabCustom = FEATURE_SECTIONS_AUTO.length + 1;
+
 		const tabMetasIn = [
-			...FEATURE_SECTIONS.map(section => new TabUiUtil.TabMeta({
+			...FEATURE_SECTIONS_AUTO.map(section => new TabUiUtil.TabMeta({
 				name: FEATURE_SECTION_TAB_TITLES[section],
 				hasBorder: true,
 				hasBackground: true,
 			})),
+			new TabUiUtil.TabMeta({
+				name: TAB_SPELLCASTING_TITLE,
+				hasBorder: true,
+				hasBackground: true,
+			}),
+			new TabUiUtil.TabMeta({
+				name: FEATURE_SECTION_TAB_TITLES[FEATURE_SECTION_CUSTOM],
+				hasBorder: true,
+				hasBackground: true,
+			}),
 			new TabUiUtil.TabMeta({
 				type: "buttons",
 				isSplitStart: true,
@@ -646,9 +888,13 @@ export class CharactersUi extends BaseComponent {
 						title: "Add Custom Feature",
 						pFnClick: () => {
 							this._addCustomFeature();
-							const ixCustom = FEATURE_SECTIONS.indexOf(FEATURE_SECTION_CUSTOM);
-							this._setIxActiveTab({ixActiveTab: ixCustom});
+							this._setIxActiveTab({ixActiveTab: this._ixTabCustom});
 						},
+					},
+					{
+						html: `<span class="fal fa-book-open"></span>`,
+						title: "Open Spell Library",
+						pFnClick: () => this.openSpellcastingLibrary(),
 					},
 				],
 			}),
@@ -656,13 +902,16 @@ export class CharactersUi extends BaseComponent {
 
 		const tabMetas = this._renderTabs(tabMetasIn, {eleParent: wrp});
 		this._featureTabMetas = Object.fromEntries(
-			FEATURE_SECTIONS.map((section, ix) => [section, tabMetas[ix]]),
+			FEATURE_SECTIONS_AUTO.map((section, ix) => [section, tabMetas[ix]]),
 		);
+		this._tabMetaSpellcasting = tabMetas[this._ixTabSpellcasting];
+		this._featureTabMetas[FEATURE_SECTION_CUSTOM] = tabMetas[this._ixTabCustom];
 
 		FEATURE_SECTIONS.forEach(section => {
 			this._featureTabMetas[section].wrpTab.vee.addClass("ve-p-2");
 		});
 		FEATURE_SECTIONS_AUTO.forEach(section => this._featureTabMetas[section].btnTab.vee.hide());
+		this._tabMetaSpellcasting.btnTab.vee.hide();
 
 		const wrpCustom = veT`<div class="ve-flex-col ve-w-100"></div>`;
 		this._collectionCustomFeatures = new CharactersCustomFeatureCollection(this, wrpCustom);
@@ -677,6 +926,11 @@ export class CharactersUi extends BaseComponent {
 			${btnAddCustom}
 			${wrpCustom}
 		`;
+
+		CharactersSpellcastingPanel.render({
+			parentUi: this,
+			wrpTab: this._tabMetaSpellcasting.wrpTab,
+		});
 
 		const pRenderAuto = MiscUtil.debounce(() => this._pRenderAutoFeatures(), 50);
 		[
@@ -693,6 +947,20 @@ export class CharactersUi extends BaseComponent {
 		]
 			.forEach(prop => this._addHookBase(prop, pRenderAuto));
 		pRenderAuto();
+
+		const pSyncSpells = MiscUtil.debounce(() => this._pSyncSpellcasting(), 50);
+		[
+			"className",
+			"classSource",
+			"subclassName",
+			"subclassShortName",
+			"subclassSource",
+			"level",
+			...Parser.ABIL_ABVS,
+		]
+			.forEach(prop => this._addHookBase(prop, pSyncSpells));
+		this._addHookBase("spellcasting", () => this._syncSpellcastingTabVisible());
+		pSyncSpells();
 
 		return wrp;
 	}
@@ -735,13 +1003,22 @@ export class CharactersUi extends BaseComponent {
 	}
 
 	_syncFeatureTabActive () {
-		const tabMetas = FEATURE_SECTIONS.map(section => this._featureTabMetas[section]);
+		const tabMetas = [
+			...FEATURE_SECTIONS_AUTO.map(section => this._featureTabMetas[section]),
+			this._tabMetaSpellcasting,
+			this._featureTabMetas[FEATURE_SECTION_CUSTOM],
+		];
 		const ixActive = this._getIxActiveTab();
 		const active = tabMetas[ixActive];
 		if (active && !active.btnTab.classList.contains("ve-hidden")) return;
 
-		const ixVisible = tabMetas.findIndex(it => !it.btnTab.classList.contains("ve-hidden"));
-		this._setIxActiveTab({ixActiveTab: ixVisible >= 0 ? ixVisible : FEATURE_SECTIONS.indexOf(FEATURE_SECTION_CUSTOM)});
+		const ixVisible = tabMetas.findIndex(it => it && !it.btnTab.classList.contains("ve-hidden"));
+		this._setIxActiveTab({ixActiveTab: ixVisible >= 0 ? ixVisible : this._ixTabCustom});
+	}
+
+	_getIxFeatureTab (section) {
+		if (section === FEATURE_SECTION_CUSTOM) return this._ixTabCustom;
+		return FEATURE_SECTIONS_AUTO.indexOf(section);
 	}
 
 	_render_featureRow (feature, isHidden) {
@@ -811,6 +1088,7 @@ export class CharactersUi extends BaseComponent {
 		const btn = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="${title}"><span class="glyphicon glyphicon-remove"></span></button>`
 			.vee.onn("click", () => {
 				this._state[prop] = null;
+				if (prop === "raceHash" || prop === "backgroundHash") this._pApplyAutoArmorWeaponProfs().then(null);
 			});
 		const hk = () => btn.vee.toggle(!!this._state[prop]);
 		this._addHookBase(prop, hk);
@@ -854,7 +1132,8 @@ export class CharactersUi extends BaseComponent {
 		this._loadedSubclassIdent = null;
 
 		this._proxyAssignSimple("state", nxt);
-		this._setIxActiveTab({ixActiveTab: FEATURE_SECTIONS.indexOf(sc ? FEATURE_SECTION_SUBCLASS : FEATURE_SECTION_CLASS)});
+		if (isClassChange) this._pApplyAutoArmorWeaponProfs().then(null);
+		this._setIxActiveTab({ixActiveTab: this._getIxFeatureTab(sc ? FEATURE_SECTION_SUBCLASS : FEATURE_SECTION_CLASS)});
 	}
 
 	async _pSelectHashEntity ({modal, propHash, page, arr}) {
@@ -868,8 +1147,13 @@ export class CharactersUi extends BaseComponent {
 			throw new Error(`Could not find selected entity: ${JSON.stringify(li)}`);
 		}
 		this._state[propHash] = hash;
-		if (propHash === "raceHash") this._setIxActiveTab({ixActiveTab: FEATURE_SECTIONS.indexOf(FEATURE_SECTION_RACE)});
-		else if (propHash === "backgroundHash") this._setIxActiveTab({ixActiveTab: FEATURE_SECTIONS.indexOf(FEATURE_SECTION_BACKGROUND)});
+		if (propHash === "raceHash") {
+			this._setIxActiveTab({ixActiveTab: this._getIxFeatureTab(FEATURE_SECTION_RACE)});
+			this._pApplyAutoArmorWeaponProfs().then(null);
+		} else if (propHash === "backgroundHash") {
+			this._setIxActiveTab({ixActiveTab: this._getIxFeatureTab(FEATURE_SECTION_BACKGROUND)});
+			this._pApplyAutoArmorWeaponProfs().then(null);
+		}
 	}
 
 	async _pAddInventoryItems () {
@@ -893,6 +1177,234 @@ export class CharactersUi extends BaseComponent {
 		this._state.inventory = nxt;
 	}
 
+	async _pSyncSpellcasting () {
+		const cls = await this._pGetClass();
+		const sc = await this._pGetSubclass();
+		const ident = [
+			this._state.className,
+			this._state.classSource,
+			this._state.subclassName,
+			this._state.subclassSource,
+		].join("|");
+		const identityChanged = this._spellcastingIdent != null && ident !== this._spellcastingIdent;
+		this._spellcastingIdent = ident;
+
+		const meta = CharactersSpellcasting.getCasterMeta({
+			cls,
+			sc,
+			level: this._state.level,
+			getAbilityMod: ab => this.getAbilityMod(ab),
+		});
+		this._spellcastingMode = meta.mode || "known";
+		this._spellcastingHint = meta.hint || "";
+		this._spellcastingIsCaster = !!meta.isCaster;
+		this._spellcastingSpellListClass = meta.spellListClass || null;
+
+		const nxt = CharactersSpellcasting.applyAuto({
+			existing: this._state.spellcasting,
+			meta,
+			identityChanged,
+		});
+		this._state.spellcasting = nxt;
+	}
+
+	_syncSpellcastingTabVisible () {
+		if (!this._tabMetaSpellcasting) return;
+		const sc = this._getSpellcastingState();
+		const show = !!(this._spellcastingIsCaster || sc.blocks.length || sc.spells.length);
+		this._tabMetaSpellcasting.btnTab.vee.toggle(show);
+		this._syncFeatureTabActive();
+	}
+
+	_getSpellcastingState () {
+		return CharactersSpellcasting.migrate(this._state.spellcasting);
+	}
+
+	_setSpellcastingState (nxt) {
+		this._state.spellcasting = CharactersSpellcasting.migrate(nxt);
+	}
+
+	updateSpellBlock (blockState) {
+		const sc = this._getSpellcastingState();
+		const ix = sc.blocks.findIndex(it => it.id === blockState.id);
+		if (!~ix) return;
+		sc.blocks[ix] = blockState;
+		this._setSpellcastingState(sc);
+	}
+
+	addSpellBlock () {
+		const sc = this._getSpellcastingState();
+		sc.blocks.push({
+			id: CryptUtil.uid(),
+			origin: "custom",
+			name: "Extra",
+			ability: "int",
+			bonus: 0,
+		});
+		this._setSpellcastingState(sc);
+		if (this._tabMetaSpellcasting) {
+			this._tabMetaSpellcasting.btnTab.vee.show();
+			this._setIxActiveTab({ixActiveTab: this._ixTabSpellcasting});
+		}
+	}
+
+	openSpellcastingLibrary () {
+		if (!this._tabMetaSpellcasting) return;
+		const sc = this._getSpellcastingState();
+		const show = !!(this._spellcastingIsCaster || sc.blocks.length || sc.spells.length);
+		if (!show) this.addSpellBlock();
+		else {
+			this._tabMetaSpellcasting.btnTab.vee.show();
+			this._setIxActiveTab({ixActiveTab: this._ixTabSpellcasting});
+		}
+		this._isSpellLibraryOpen = true;
+		this._spellLibraryOpenSync?.();
+	}
+
+	removeSpellBlock (blockId) {
+		const sc = this._getSpellcastingState();
+		sc.blocks = sc.blocks.filter(it => it.id !== blockId);
+		const fallback = sc.blocks[0]?.id || null;
+		sc.spells = sc.spells.map(sp => sp.blockId === blockId ? {...sp, blockId: fallback} : sp);
+		this._setSpellcastingState(sc);
+	}
+
+	getSpellEntity (tag) {
+		const parsed = CharactersSpellcasting.parseSpellTag(tag);
+		if (!parsed) return null;
+		return this._spellsByUid.get(`${parsed.name}|${parsed.source}`.toLowerCase())
+			|| this._spellsByUid.get(`${parsed.name}|${Parser.SRC_PHB}`.toLowerCase())
+			|| null;
+	}
+
+	getSpellFilterExpression () {
+		const sc = this._getSpellcastingState();
+		return CharactersSpellcasting.getSpellFilterExpression({
+			spellListClass: this._spellcastingSpellListClass,
+			maxSlotLevel: CharactersSpellcasting.getMaxSlotLevelFromState(sc),
+		});
+	}
+
+	async pAddSpells () {
+		const expr = this.getSpellFilterExpression();
+		if (!expr) this._modalFilterSpells.pageFilter?.filterBox?.reset();
+		const selected = await this._modalFilterSpells.pGetUserSelection({filterExpression: expr});
+		if (!selected?.length) return;
+
+		const sc = this._getSpellcastingState();
+		if (!sc.blocks.length) {
+			sc.blocks.push({
+				id: CryptUtil.uid(),
+				origin: "custom",
+				name: "Extra",
+				ability: "int",
+				bonus: 0,
+			});
+		}
+		const defaultBlock = sc.blocks.find(b => b.origin !== "custom") || sc.blocks.at(-1);
+		const defaultSource = defaultBlock.origin === "class" || defaultBlock.origin === "subclass"
+			? defaultBlock.origin
+			: "custom";
+		const have = new Set(sc.spells.map(sp => `${sp.tag}`.toLowerCase()));
+
+		selected.forEach(li => {
+			const name = li.name;
+			const source = li.values?.sourceJson || li.values?.source;
+			if (!name || !source) return;
+			const tag = `{@spell ${name}|${source}}`;
+			if (have.has(tag.toLowerCase())) return;
+			have.add(tag.toLowerCase());
+			const level = Number(li.values?.level);
+			sc.spells.push({
+				id: CryptUtil.uid(),
+				tag,
+				level: Number.isFinite(level) ? level : 0,
+				blockId: defaultBlock.id,
+				source: defaultSource,
+				prepared: false,
+				inBook: false,
+			});
+		});
+		this._setSpellcastingState(sc);
+	}
+
+	removeSpell (spellId) {
+		const sc = this._getSpellcastingState();
+		sc.spells = sc.spells.filter(it => it.id !== spellId);
+		this._setSpellcastingState(sc);
+	}
+
+	setSpellFlag (spellId, flag, value) {
+		const sc = this._getSpellcastingState();
+		const ix = sc.spells.findIndex(it => it.id === spellId);
+		if (!~ix) return;
+		sc.spells[ix] = {...sc.spells[ix], [flag]: !!value};
+		this._setSpellcastingState(sc);
+	}
+
+	setSpellBlockId (spellId, blockId) {
+		const sc = this._getSpellcastingState();
+		const ix = sc.spells.findIndex(it => it.id === spellId);
+		if (!~ix) return;
+		sc.spells[ix] = {...sc.spells[ix], blockId};
+		this._setSpellcastingState(sc);
+	}
+
+	toggleSpellPip (level, ixPip) {
+		const sc = this._getSpellcastingState();
+		const slot = sc.slots[level];
+		if (!slot) return;
+		if (ixPip < slot.current) slot.current = ixPip;
+		else slot.current = Math.min(slot.max, ixPip + 1);
+		this._setSpellcastingState(sc);
+	}
+
+	togglePactPip (ixPip) {
+		const sc = this._getSpellcastingState();
+		if (!sc.slotsPact) return;
+		if (ixPip < sc.slotsPact.current) sc.slotsPact.current = ixPip;
+		else sc.slotsPact.current = Math.min(sc.slotsPact.max, ixPip + 1);
+		this._setSpellcastingState(sc);
+	}
+
+	setSpellSlotMaxOverride (level, val) {
+		const sc = this._getSpellcastingState();
+		const slot = sc.slots[level];
+		if (!slot) return;
+		if (val == null) {
+			slot.maxOverride = null;
+			this._setSpellcastingState(sc);
+			this._pSyncSpellcasting().then(null);
+			return;
+		}
+		slot.maxOverride = val;
+		slot.max = val;
+		slot.current = Math.min(slot.current, slot.max);
+		this._setSpellcastingState(sc);
+	}
+
+	setPactMaxOverride (val) {
+		const sc = this._getSpellcastingState();
+		if (!sc.slotsPact) return;
+		if (val == null) {
+			sc.slotsPact.maxOverride = null;
+			this._setSpellcastingState(sc);
+			this._pSyncSpellcasting().then(null);
+			return;
+		}
+		sc.slotsPact.maxOverride = val;
+		sc.slotsPact.max = val;
+		sc.slotsPact.current = Math.min(sc.slotsPact.current, sc.slotsPact.max);
+		this._setSpellcastingState(sc);
+	}
+
+	resetSpellSlots () {
+		const sc = this._getSpellcastingState();
+		Object.values(sc.slots).forEach(slot => { slot.current = slot.max; });
+		if (sc.slotsPact) sc.slotsPact.current = sc.slotsPact.max;
+		this._setSpellcastingState(sc);
+	}
+
 	_getDefaultState () {
 		const state = {
 			name: "",
@@ -912,15 +1424,21 @@ export class CharactersUi extends BaseComponent {
 			hpMax: null,
 			ac: "",
 			speed: "",
+			resistances: [],
 
 			hiddenFeatureKeys: [],
 			customFeatures: [],
 			inventory: [],
 			featureWidgets: {},
+			otherProficienciesExtra: {
+				weapons: [],
+				languages: [],
+				tools: [],
+			},
 
 			// Forward-compatible stubs
 			classes: null,
-			spellcasting: null,
+			spellcasting: CharactersSpellcasting.getEmptyState(),
 			hpFormula: null,
 			optionalFeatureUids: [],
 		};
@@ -931,6 +1449,9 @@ export class CharactersUi extends BaseComponent {
 		});
 		getSkills().forEach(skill => {
 			state[skillToProp(skill)] = 0;
+		});
+		ARMOR_WEAPON_PROF_DEFS.forEach(({id}) => {
+			state[awpToProp(id)] = false;
 		});
 
 		return state;

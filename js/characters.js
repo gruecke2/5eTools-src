@@ -16,11 +16,12 @@ class CharactersPage {
 		]);
 		await ExcludeUtil.pInitialise();
 
-		const [races, backgrounds, feats, items] = await Promise.all([
+		const [races, backgrounds, feats, items, spells] = await Promise.all([
 			this._pLoadRaces(),
 			this._pLoadBackgrounds(),
 			this._pLoadFeats(),
 			this._pLoadItems(),
+			this._pLoadSpells(),
 		]);
 
 		this._ui = new CharactersUi({
@@ -28,6 +29,7 @@ class CharactersPage {
 			backgrounds,
 			feats,
 			items,
+			spells,
 		});
 		await this._ui.pInit();
 
@@ -125,6 +127,18 @@ class CharactersPage {
 					it.source,
 					{isNoCount: true},
 				);
+			});
+	}
+
+	async _pLoadSpells () {
+		return [
+			...(await DataLoader.pCacheAndGetAllSite(UrlUtil.PG_SPELLS)),
+			...(await DataLoader.pCacheAndGetAllPrerelease(UrlUtil.PG_SPELLS)),
+			...(await DataLoader.pCacheAndGetAllBrew(UrlUtil.PG_SPELLS)),
+		]
+			.filter(it => {
+				const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_SPELLS](it);
+				return !ExcludeUtil.isExcluded(hash, "spell", it.source);
 			});
 	}
 
