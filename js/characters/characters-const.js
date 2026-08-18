@@ -8,22 +8,24 @@ export const FEATURE_SECTION_RACE = "race";
 export const FEATURE_SECTION_BACKGROUND = "background";
 export const FEATURE_SECTION_FEAT = "feat";
 export const FEATURE_SECTION_CUSTOM = "custom";
+/** Alias: Species + Background render into the Origin tab (`FEATURE_SECTION_RACE`). */
+export const FEATURE_SECTION_ORIGIN = FEATURE_SECTION_RACE;
 
 export const FEATURE_SECTION_TAB_TITLES = {
 	[FEATURE_SECTION_CLASS]: "Class",
 	[FEATURE_SECTION_SUBCLASS]: "Subclass",
-	[FEATURE_SECTION_RACE]: "Species",
+	[FEATURE_SECTION_RACE]: "Origin",
 	[FEATURE_SECTION_BACKGROUND]: "Background",
 	[FEATURE_SECTION_FEAT]: "Feats",
 	[FEATURE_SECTION_CUSTOM]: "Custom",
 };
 
+/** Auto-feature tabs only (no Background tab; those rows share Origin). Order is not tab order. */
 export const FEATURE_SECTIONS_AUTO = [
 	FEATURE_SECTION_CLASS,
 	FEATURE_SECTION_SUBCLASS,
-	FEATURE_SECTION_RACE,
-	FEATURE_SECTION_BACKGROUND,
 	FEATURE_SECTION_FEAT,
+	FEATURE_SECTION_RACE,
 ];
 
 export const FEATURE_SECTIONS = [
@@ -31,6 +33,7 @@ export const FEATURE_SECTIONS = [
 	FEATURE_SECTION_CUSTOM,
 ];
 
+export const TAB_ACTIONS_TITLE = "Actions";
 export const TAB_SPELLCASTING_TITLE = "Spellcasting";
 
 /** 0 none / 1 proficient / 2 expertise / 3 half — matches ProfUiUtil.getProfCycler */

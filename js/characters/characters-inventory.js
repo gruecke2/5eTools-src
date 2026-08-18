@@ -1,3 +1,4 @@
+import {CharactersEquipment} from "./characters-equipment.js";
 import {CharactersFeatureWidgets} from "./characters-widgets.js";
 
 export class CharactersInventoryCollection extends RenderableCollectionGenericRows {
@@ -41,9 +42,23 @@ export class CharactersInventoryCollection extends RenderableCollectionGenericRo
 			},
 		);
 
+		const btnEquip = veT`<button class="ve-btn ve-btn-xxs ve-btn-default ve-mr-2 ve-no-shrink ve-hidden" title="Equip">Equip</button>`
+			.vee.onn("click", () => this._comp.toggleInventoryEquip(entity.id));
+		const hkEquip = () => {
+			const item = this._items.find(it => UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_ITEMS](it) === comp._state.itemHash);
+			const slot = CharactersEquipment.getSlot(item);
+			btnEquip.vee.toggleClass("ve-hidden", !slot)
+				.vee.toggleClass("ve-btn-primary", !!comp._state.equipped)
+				.vee.toggleClass("ve-btn-default", !comp._state.equipped);
+		};
+		comp._addHookBase("itemHash", hkEquip);
+		comp._addHookBase("equipped", hkEquip);
+		hkEquip();
+
 		const btnDelete = this._utils.getBtnDelete({entity, title: "Remove Item"});
 
 		veT(wrpRow)`
+			${btnEquip}
 			<div class="ve-flex-col ve-flex-grow-1 ve-min-w-0 ve-mr-2">${dispName}</div>
 			<div class="ve-no-shrink ve-mr-2">${iptQty}</div>
 			<div class="ve-flex-grow-1 ve-mr-2">${iptNotes}</div>

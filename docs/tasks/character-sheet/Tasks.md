@@ -24,22 +24,23 @@ Shipped and working. Do not re-implement unless fixing a bug.
 
 **Features column (right)**
 
-- Top tabs: Class / Subclass / Species / Background / Feats / Custom / Spellcasting (empty auto tabs hidden except Feats)
+- Top tabs: Class / Subclass / Feats / Actions / Spellcasting / Origin / Custom (empty auto tabs hidden except Feats and Actions). Species + Background share **Origin** (headings “Species” then “Background”); Origin hides if both lists are empty.
 - Auto features from class data by level; hide/unhide; custom notes/entries
 - Class **Ability Score Improvement** and **Epic Boon** rows: Choose / Change / Clear Feat (stores `featChoices[featureKey]` + `featHashes`). ASI is picking the Ability Score Improvement feat (or any other feat); no separate +2 UI. Epic Boon picker defaults to Category=EB. Dropping below the grant level leaves the feat until the player removes it.
 - User-attached widgets on any feature: counter, pips, number, rollable, reference
 - Spellcasting tab: attack/DC blocks (primary class), slot pips or pact, Ready + Library drawer, spell picker with class/level pre-filter; **no combined multiclass slot math** — primary class table + manual max overrides
+- Actions tab (always visible): auto rows from equipped weapons (to-hit = PB if Simple/Martial toggle matches + ability + `bonusWeapon`/`bonusWeaponAttack` + row `+hit`; damage = `dmg1`/`dmg2` + ability + weapon damage bonus + row `+dmg`); custom rows; group by Action / Bonus / Reaction / Free; Add Action / Add Unarmed (1 + STR stub, not 2024 1d6). Finesse/ranged use an ability select (ranged defaults DEX, else STR). Scores stay manual.
 
 **Left column**
 
 - Other Proficiencies: weapon/armor toggles + auto lists (structured grants) + custom lines for languages/tools
-- Inventory via item picker (quantity + notes; not equipped)
+- Inventory via item picker (quantity + notes + Equip). Equip is weapons (many) / one armor / one shield (XOR). Other items hide Equip. Equipping armor or a shield writes computed AC into Combat (unarmored `10 + DEX` + shield; item `ac` / `dexterityMax` / `bonusAc` only). AC tooltip shows the breakdown. Player can still type Mage Armor / Unarmored Defense by hand.
 
 **Key files**
 
 - `js/characters.js` — page init, roster, save
 - `js/characters/characters-ui.js` — main UI/state
-- `js/characters/characters-spellcasting.js`, `characters-classes.js`, `characters-hp.js`, `characters-roster.js`, `characters-features.js`
+- `js/characters/characters-spellcasting.js`, `characters-classes.js`, `characters-hp.js`, `characters-roster.js`, `characters-features.js`, `characters-equipment.js`, `characters-actions.js`
 - `scss/includes/characters.scss`
 
 ---
@@ -54,6 +55,12 @@ These require parsing or resolving **player choices** and **named content** from
 - [ ] **Feature widget auto-seed** — detect named features (Second Wind, Ki, etc.) and attach appropriate widgets automatically
 - [ ] **Spell list auto-seed** — feat `additionalSpells` → spell library; ritual / always-prepared enforcement where data supports it
 - [ ] **Feat ability bonuses → scores** — when picking / changing / removing a feat, apply structured `feat.ability` into the six scores (cap 20; revert on change). Statgen already has this UI (`statgen-ui-comp-asi.js`: ASI +2 or +1/+1 checkboxes, plus feat ability choose). Reverse-engineer that; include Ability Score Improvement and other feats with bonuses (Skill Expert, Actor, etc.). Sheet currently leaves scores as manual edits.
+- [ ] **Fighting Style math** — Defense (+1 AC in armor), Archery (+2 ranged attack), Dueling (+2 damage one-handed). Needs optional-feature pickers first; do not bake into Actions/AC until the style is on the sheet.
+- [ ] **Unarmored Defense / Mage Armor** — Monk/Barbarian UD and Mage Armor into AC. Combat AC is a typed field; equip writes PHB default `10 + DEX` (plus armor/shield). Leave UD/Mage Armor as a manual AC edit until seeded.
+- [ ] **Extra Attack count** — extra attack rows / annotations from class features.
+- [ ] **Two-weapon / Light bonus action** — auto Bonus Action row when a Light weapon is equipped.
+- [ ] **Spell attacks on Actions** — cantrips / spell attacks on the Actions tab (Spellcasting tab remains the source of attack/DC today).
+- [ ] **Attunement / worn slots** — attunement limit and worn slots beyond armor / shield / weapon.
 
 Related spellcasting polish (easier than full auto-seed, but still deferred): Warlock short-rest pact refill; spell-points variant; auto-spend slots on Cast.
 
@@ -64,7 +71,6 @@ Related spellcasting polish (easier than full auto-seed, but still deferred): Wa
 Smaller scope or explicit non-goals for now. State stubs / manual UI only until a dedicated pass.
 
 - [ ] **Combined multiclass spell slots** — full caster table merge; today primary class + overrides only
-- [ ] **Equipped items** — `inventory[].equipped` and any AC/attack interaction
 - [ ] **Live Statgen sync** — ongoing link to Stat Generator (import stays snapshot)
 - [ ] **`hpFormula` string field** — optional display/storage; HP math uses HD pools in Combat today
 

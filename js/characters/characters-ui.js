@@ -18,9 +18,12 @@ import {
 	saveToProp,
 	SKILL_PROF_MULT,
 	skillToProp,
+	TAB_ACTIONS_TITLE,
 	TAB_SPELLCASTING_TITLE,
 } from "./characters-const.js";
+import {CharactersActions, CharactersActionsPanel} from "./characters-actions.js";
 import {CharactersClassList} from "./characters-classes.js";
+import {CharactersEquipment} from "./characters-equipment.js";
 import {CharactersFeatureCollector} from "./characters-features.js";
 import {CharactersHitDice} from "./characters-hp.js";
 import {CharactersCustomFeatureCollection, CharactersInventoryCollection} from "./characters-inventory.js";
@@ -139,6 +142,8 @@ export class CharactersUi extends BaseComponent {
 			if (!Array.isArray(toLoad.state.featHashes)) toLoad.state.featHashes = [];
 			else toLoad.state.featHashes = this._toFeatHashEntries(toLoad.state.featHashes);
 			if (!toLoad.state.featChoices || typeof toLoad.state.featChoices !== "object") toLoad.state.featChoices = {};
+			toLoad.state.customActions = CharactersActions.migrateCustom(toLoad.state.customActions);
+			toLoad.state.actionOverrides = CharactersActions.migrateOverrides(toLoad.state.actionOverrides);
 		}
 		super.setStateFrom(toLoad, isOverwrite);
 		if (toLoad.meta) this._proxyAssignSimple("meta", toLoad.meta, true);
@@ -152,6 +157,7 @@ export class CharactersUi extends BaseComponent {
 		if (this._state.featHashes?.length) return true;
 		if (this._state.inventory?.length) return true;
 		if (this._state.customFeatures?.length) return true;
+		if (this._state.customActions?.length) return true;
 		const sc = CharactersSpellcasting.migrate(this._state.spellcasting);
 		if (sc.blocks.length || sc.spells.length) return true;
 		return false;
@@ -873,6 +879,14 @@ export class CharactersUi extends BaseComponent {
 				html: `<input class="ve-form-control ve-input-xs form-control--minimal ve-text-center" type="text" placeholder="AC" style="width: 52px;">`,
 			},
 		);
+		this._iptAc = iptAc;
+		const hkAcBreakdown = () => {
+			const {breakdown} = this._getEquippedAcMeta();
+			iptAc.vee.attr("title", breakdown || "Armor Class");
+		};
+		this._addHookBase("inventory", hkAcBreakdown);
+		this._addHookBase("dex", hkAcBreakdown);
+		hkAcBreakdown();
 		const iptSpeed = ComponentUiUtil.getIptStr(
 			this,
 			"speed",
@@ -1223,7 +1237,7 @@ export class CharactersUi extends BaseComponent {
 		this._addHookBase("inventory", hk);
 		hk();
 
-		const btnAdd = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="Add items; carried, not equipped"><span class="glyphicon glyphicon-plus"></span> Add Item</button>`
+		const btnAdd = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="Add items"><span class="glyphicon glyphicon-plus"></span> Add Item</button>`
 			.vee.onn("click", () => this._pAddInventoryItems());
 
 		return veT`<div class="ve-charsheet__panel ve-p-2 ve-mb-2">
@@ -1238,25 +1252,28 @@ export class CharactersUi extends BaseComponent {
 	_render_features () {
 		const wrp = veT`<div class="ve-flex-col ve-w-100 ve-h-100 ve-min-h-0 ve-charsheet__wrp-features"></div>`;
 
-		this._ixTabSpellcasting = FEATURE_SECTIONS_AUTO.length;
-		this._ixTabCustom = FEATURE_SECTIONS_AUTO.length + 1;
+		this._ixTabClass = 0;
+		this._ixTabSubclass = 1;
+		this._ixTabFeat = 2;
+		this._ixTabActions = 3;
+		this._ixTabSpellcasting = 4;
+		this._ixTabOrigin = 5;
+		this._ixTabCustom = 6;
+
+		const tabMeta = name => new TabUiUtil.TabMeta({
+			name,
+			hasBorder: true,
+			hasBackground: true,
+		});
 
 		const tabMetasIn = [
-			...FEATURE_SECTIONS_AUTO.map(section => new TabUiUtil.TabMeta({
-				name: FEATURE_SECTION_TAB_TITLES[section],
-				hasBorder: true,
-				hasBackground: true,
-			})),
-			new TabUiUtil.TabMeta({
-				name: TAB_SPELLCASTING_TITLE,
-				hasBorder: true,
-				hasBackground: true,
-			}),
-			new TabUiUtil.TabMeta({
-				name: FEATURE_SECTION_TAB_TITLES[FEATURE_SECTION_CUSTOM],
-				hasBorder: true,
-				hasBackground: true,
-			}),
+			tabMeta(FEATURE_SECTION_TAB_TITLES[FEATURE_SECTION_CLASS]),
+			tabMeta(FEATURE_SECTION_TAB_TITLES[FEATURE_SECTION_SUBCLASS]),
+			tabMeta(FEATURE_SECTION_TAB_TITLES[FEATURE_SECTION_FEAT]),
+			tabMeta(TAB_ACTIONS_TITLE),
+			tabMeta(TAB_SPELLCASTING_TITLE),
+			tabMeta(FEATURE_SECTION_TAB_TITLES[FEATURE_SECTION_RACE]),
+			tabMeta(FEATURE_SECTION_TAB_TITLES[FEATURE_SECTION_CUSTOM]),
 			new TabUiUtil.TabMeta({
 				type: "buttons",
 				isSplitStart: true,
@@ -1279,18 +1296,23 @@ export class CharactersUi extends BaseComponent {
 		];
 
 		const tabMetas = this._renderTabs(tabMetasIn, {eleParent: wrp});
-		this._featureTabMetas = Object.fromEntries(
-			FEATURE_SECTIONS_AUTO.map((section, ix) => [section, tabMetas[ix]]),
-		);
+		this._featureTabMetas = {
+			[FEATURE_SECTION_CLASS]: tabMetas[this._ixTabClass],
+			[FEATURE_SECTION_SUBCLASS]: tabMetas[this._ixTabSubclass],
+			[FEATURE_SECTION_FEAT]: tabMetas[this._ixTabFeat],
+			[FEATURE_SECTION_RACE]: tabMetas[this._ixTabOrigin],
+			[FEATURE_SECTION_CUSTOM]: tabMetas[this._ixTabCustom],
+		};
+		this._tabMetaActions = tabMetas[this._ixTabActions];
 		this._tabMetaSpellcasting = tabMetas[this._ixTabSpellcasting];
-		this._featureTabMetas[FEATURE_SECTION_CUSTOM] = tabMetas[this._ixTabCustom];
 
 		FEATURE_SECTIONS.forEach(section => {
 			this._featureTabMetas[section].wrpTab.vee.addClass("ve-p-2");
 		});
-		FEATURE_SECTIONS_AUTO.forEach(section => {
-			if (section !== FEATURE_SECTION_FEAT) this._featureTabMetas[section].btnTab.vee.hide();
-		});
+		[FEATURE_SECTION_CLASS, FEATURE_SECTION_SUBCLASS, FEATURE_SECTION_RACE]
+			.forEach(section => this._featureTabMetas[section].btnTab.vee.hide());
+		this._featureTabMetas[FEATURE_SECTION_FEAT].btnTab.vee.show();
+		this._tabMetaActions.btnTab.vee.show();
 		this._tabMetaSpellcasting.btnTab.vee.hide();
 
 		const wrpFeatRows = veT`<div class="ve-flex-col ve-w-100"></div>`;
@@ -1315,6 +1337,11 @@ export class CharactersUi extends BaseComponent {
 			${btnAddCustom}
 			${wrpCustom}
 		`;
+
+		CharactersActionsPanel.render({
+			parentUi: this,
+			wrpTab: this._tabMetaActions.wrpTab,
+		});
 
 		CharactersSpellcastingPanel.render({
 			parentUi: this,
@@ -1408,6 +1435,16 @@ export class CharactersUi extends BaseComponent {
 				return;
 			}
 
+			if (section === FEATURE_SECTION_RACE) {
+				tabMeta.wrpTab.vee.empty();
+				const raceList = bySection[FEATURE_SECTION_RACE] || [];
+				const bgList = bySection[FEATURE_SECTION_BACKGROUND] || [];
+				this._appendOriginFeatureGroup(tabMeta.wrpTab, raceList, hidden, "Species");
+				this._appendOriginFeatureGroup(tabMeta.wrpTab, bgList, hidden, "Background");
+				tabMeta.btnTab.vee.toggle(!!(raceList.length || bgList.length));
+				return;
+			}
+
 			tabMeta.wrpTab.vee.empty();
 
 			let lastGroup = null;
@@ -1425,10 +1462,22 @@ export class CharactersUi extends BaseComponent {
 		this._syncFeatureTabActive();
 	}
 
+	_appendOriginFeatureGroup (wrp, list, hidden, heading) {
+		if (!list.length) return;
+		wrp.vee.appends(`<div class="ve-bold ve-small ve-mt-2 ve-mb-1">${heading.qq()}</div>`);
+		list.forEach(feature => {
+			wrp.vee.appends(this._render_featureRow(feature, hidden.has(feature.key)));
+		});
+	}
+
 	_syncFeatureTabActive () {
 		const tabMetas = [
-			...FEATURE_SECTIONS_AUTO.map(section => this._featureTabMetas[section]),
+			this._featureTabMetas[FEATURE_SECTION_CLASS],
+			this._featureTabMetas[FEATURE_SECTION_SUBCLASS],
+			this._featureTabMetas[FEATURE_SECTION_FEAT],
+			this._tabMetaActions,
 			this._tabMetaSpellcasting,
+			this._featureTabMetas[FEATURE_SECTION_RACE],
 			this._featureTabMetas[FEATURE_SECTION_CUSTOM],
 		];
 		const ixActive = this._getIxActiveTab();
@@ -1441,7 +1490,11 @@ export class CharactersUi extends BaseComponent {
 
 	_getIxFeatureTab (section) {
 		if (section === FEATURE_SECTION_CUSTOM) return this._ixTabCustom;
-		return FEATURE_SECTIONS_AUTO.indexOf(section);
+		if (section === FEATURE_SECTION_RACE || section === FEATURE_SECTION_BACKGROUND) return this._ixTabOrigin;
+		if (section === FEATURE_SECTION_FEAT) return this._ixTabFeat;
+		if (section === FEATURE_SECTION_CLASS) return this._ixTabClass;
+		if (section === FEATURE_SECTION_SUBCLASS) return this._ixTabSubclass;
+		return this._ixTabCustom;
 	}
 
 	_render_featureRow (feature, isHidden) {
@@ -1634,11 +1687,67 @@ export class CharactersUi extends BaseComponent {
 					itemHash: hash,
 					quantity: 1,
 					notes: "",
-					equipped: null,
+					equipped: false,
 				},
 			});
 		});
 		this._state.inventory = nxt;
+	}
+
+	getItemByHash (hash) {
+		return this._findByHash(this._items, UrlUtil.PG_ITEMS, hash);
+	}
+
+	toggleInventoryEquip (id) {
+		const row = (this._state.inventory || []).find(it => it.id === id);
+		const slot = CharactersEquipment.getSlot(this.getItemByHash(row?.entity?.itemHash));
+		this._state.inventory = CharactersEquipment.toggleEquip(
+			this._state.inventory,
+			id,
+			hash => this.getItemByHash(hash),
+		);
+		if (slot === CharactersEquipment.SLOT_ARMOR || slot === CharactersEquipment.SLOT_SHIELD) this._applyEquippedAc();
+	}
+
+	_getEquippedAcMeta () {
+		return CharactersEquipment.getArmorClass({
+			items: this._items,
+			inventory: this._state.inventory,
+			dexMod: this.getAbilityMod("dex"),
+		});
+	}
+
+	_applyEquippedAc () {
+		const {ac, breakdown} = this._getEquippedAcMeta();
+		this._state.ac = String(ac);
+		this._iptAc?.vee.attr("title", breakdown || "Armor Class");
+	}
+
+	addCustomAction (partial) {
+		const row = CharactersActions.getEmptyCustom(partial);
+		this._state.customActions = [...(this._state.customActions || []), row];
+		this._setIxActiveTab({ixActiveTab: this._ixTabActions});
+	}
+
+	updateCustomAction (id, patch) {
+		const nxt = CharactersActions.migrateCustom(this._state.customActions);
+		const ix = nxt.findIndex(it => it.id === id);
+		if (!~ix) return;
+		nxt[ix] = CharactersActions.getEmptyCustom({...nxt[ix], ...patch, id});
+		this._state.customActions = nxt;
+	}
+
+	removeCustomAction (id) {
+		this._state.customActions = (this._state.customActions || []).filter(it => it.id !== id);
+	}
+
+	setActionOverride (invId, patch) {
+		const nxt = CharactersActions.migrateOverrides(this._state.actionOverrides);
+		nxt[invId] = {
+			...nxt[invId],
+			...patch,
+		};
+		this._state.actionOverrides = nxt;
 	}
 
 	async _pSyncSpellcasting () {
@@ -1893,6 +2002,8 @@ export class CharactersUi extends BaseComponent {
 
 			hiddenFeatureKeys: [],
 			customFeatures: [],
+			customActions: [],
+			actionOverrides: {},
 			inventory: [],
 			featureWidgets: {},
 			otherProficienciesExtra: {
