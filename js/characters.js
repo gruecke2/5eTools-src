@@ -1,5 +1,6 @@
 import {CharactersUi} from "./characters/characters-ui.js";
-import {CHARACTERS_STORAGE_KEY_PENDING_IMPORT, CHARACTERS_STORAGE_KEY_STATE} from "./characters/characters-const.js";
+import {CHARACTERS_STORAGE_KEY_PENDING_IMPORT} from "./characters/characters-const.js";
+import {CharactersRoster} from "./characters/characters-roster.js";
 import {VetoolsConfig} from "./utils-config/utils-config-config.js";
 import {UtilsEntityBackground} from "./utils/utils-entity-background.js";
 import {UtilsEntityRace} from "./utils/utils-entity-race.js";
@@ -7,6 +8,7 @@ import {UtilsEntityRace} from "./utils/utils-entity-race.js";
 class CharactersPage {
 	constructor () {
 		this._ui = null;
+		this._roster = new CharactersRoster();
 	}
 
 	async pInit () {
@@ -33,7 +35,8 @@ class CharactersPage {
 		});
 		await this._ui.pInit();
 
-		const savedState = await StorageUtil.pGetForPage(CHARACTERS_STORAGE_KEY_STATE);
+		await this._roster.pLoad();
+		const savedState = this._roster.getActiveState();
 		if (savedState != null) this._ui.setStateFrom(savedState);
 
 		await this._pApplyPendingImport();
@@ -42,6 +45,14 @@ class CharactersPage {
 		this._ui.addHookAll("state", () => savedStateDebounced());
 
 		this._ui.render(veEs(`#characters-main`));
+		this._ui.setRosterHooks({
+			getEntries: () => this._roster.listMeta(),
+			getActiveId: () => this._roster.activeId,
+			pSwitch: (id) => this._pSwitchCharacter(id),
+			pNew: () => this._pNewCharacter(),
+			pDuplicate: () => this._pDuplicateCharacter(),
+			pDelete: () => this._pDeleteCharacter(),
+		});
 
 		window.dispatchEvent(new Event("toolsLoaded"));
 	}
@@ -143,7 +154,44 @@ class CharactersPage {
 	}
 
 	async _pDoSaveState () {
-		await StorageUtil.pSetForPage(CHARACTERS_STORAGE_KEY_STATE, this._ui.getSaveableState());
+		this._roster.upsertActive(this._ui.getSaveableState());
+		await this._roster.pSave();
+	}
+
+	async _pSwitchCharacter (id) {
+		if (!id || id === this._roster.activeId) return;
+		this._roster.upsertActive(this._ui.getSaveableState());
+		this._roster.setActive(id);
+		this._ui.loadCharacterState(this._roster.getActiveState());
+		await this._roster.pSave();
+	}
+
+	async _pNewCharacter () {
+		this._roster.upsertActive(this._ui.getSaveableState());
+		this._roster.addNew();
+		this._ui.loadCharacterState(null);
+		await this._roster.pSave();
+	}
+
+	async _pDuplicateCharacter () {
+		this._roster.upsertActive(this._ui.getSaveableState());
+		this._roster.duplicateActive();
+		this._ui.loadCharacterState(this._roster.getActiveState());
+		await this._roster.pSave();
+	}
+
+	async _pDeleteCharacter () {
+		const ok = await InputUiUtil.pGetUserBoolean({
+			title: "Delete Character",
+			htmlDescription: `<div>Remove this character from the local list?<br>File exports are unaffected.</div>`,
+			textYes: "Delete",
+			textNo: "Cancel",
+		});
+		if (!ok) return;
+		this._roster.upsertActive(this._ui.getSaveableState());
+		const {cleared} = this._roster.removeActive();
+		this._ui.loadCharacterState(cleared ? null : this._roster.getActiveState());
+		await this._roster.pSave();
 	}
 }
 

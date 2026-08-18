@@ -35,6 +35,21 @@ export class CharactersFeatureCollector {
 		return `${prefix}|${hash}|${name || ix}`;
 	}
 
+	static getFeatKey (id) {
+		return `feat|${id}`;
+	}
+
+	static getFeatGrantType (name) {
+		if (name === "Ability Score Improvement") return "asi";
+		if (name === "Epic Boon") return "epicBoon";
+		return null;
+	}
+
+	static getFeatGrantFilterExpression (grantType) {
+		if (grantType === "epicBoon") return "category=EB";
+		return null;
+	}
+
 	static collectClassFeatures (cls, level) {
 		if (!cls?.classFeatures) return [];
 
@@ -52,6 +67,7 @@ export class CharactersFeatureCollector {
 					name: feature._displayName || feature.name || "(Unnamed Feature)",
 					source: feature.source,
 					entries: feature.entries || [],
+					featGrant: this.getFeatGrantType(feature.name),
 				});
 			});
 		});
@@ -107,16 +123,17 @@ export class CharactersFeatureCollector {
 		return out;
 	}
 
-	static collectFeat (feat, hash) {
-		if (!feat) return [];
+	static collectFeat (feat, id) {
+		if (!feat || !id) return [];
 		const meta = Renderer.feat.getFeatRendereableEntriesMeta(feat);
 		return [{
-			key: `feat|${hash}`,
+			key: this.getFeatKey(id),
 			section: FEATURE_SECTION_FEAT,
 			level: null,
 			name: feat.name,
 			source: feat.source,
 			entries: meta.entryMain?.entries || feat.entries || [],
+			featId: id,
 		}];
 	}
 

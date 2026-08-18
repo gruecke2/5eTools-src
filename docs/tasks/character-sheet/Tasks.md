@@ -2,41 +2,77 @@
 
 ## Goal
 
-A playable in-site sheet that snapshot-imports Stat Generator output, then lets a player pick one class + optional subclass + level so 5etools features fill in, with native click-to-roll and hide/custom notes.
+A playable in-site sheet that snapshot-imports Stat Generator output, then lets a player pick class(es) + optional subclass + level so 5etools features fill in, with native click-to-roll and hide/custom notes.
 
-## MVP
+## Done (summary for agents)
 
-- [x] New `characters.html` page (Player nav + homepage)
-- [x] Statgen “Send to Character Sheet” snapshot import
-- [x] Identity: name, class/subclass, level, species, background
-- [x] Ability scores + modifiers with `{@ability}` rolls
-- [x] Proficiency bonus from level
-- [x] Saving throws and skills with proficiency toggles and native rolls
-- [x] Manual HP / AC / speed; hit dice shown as informational text
-- [x] Class/subclass/species/background/feat features by level, in sections
-- [x] Hide/unhide auto features; custom notes/entries
-- [x] Inventory via item picker (quantity + notes; not equipped)
-- [x] Autosave + file save/load
+Shipped and working. Do not re-implement unless fixing a bug.
 
-## This pass
+**Page & persistence**
 
-- [x] Features column as top `TabUiUtil` tabs (Class / Subclass / Species / Background / Feats / Custom); empty auto tabs hidden
-- [x] Skill proficiency 4-state cycler (none / proficient / expertise / half)
-- [x] User-attached feature widgets: counter, pips, number, rollable, reference (auto and custom features)
-- [x] Other Proficiencies panel: weapons & armor toggles (simple / martial / shields / light / medium / heavy), languages, tools (auto from structured class/species/background/feat data + custom entries)
-- [x] Spellcasting tab: attack/DC blocks, auto slot pips (or Warlock pact), known/prepared/2014 Wizard book list, add via spell picker
+- `characters.html` (Player nav + homepage); autosave to page localStorage; file save/load (`.charsheet`)
+- Named character roster: toolbar dropdown + new / duplicate / delete; migrates legacy single-sheet save
+- Statgen “Send to Character Sheet” is a **one-time snapshot** import (abilities, species, background, feats)
 
-## Deferred (do not fake)
+**Identity & core stats**
 
-Keep these as state stubs / UI notes until a later pass:
+- Name, species, background, feats (Feats tab always visible: Add Feat + per-row remove). `featHashes` is `[{id, hash}]`; legacy string hashes migrate on load. `featChoices[classFeatureKey]` binds ASI/Epic Boon picks.
+- Multiclass: `classes[]` rows (+ Class), per-row level; total level → PB; Class/Subclass tabs show **grouped** features per class
+- Ability scores + `{@ability}` rolls; saving throws and skills with 4-state proficiency (none / proficient / expertise / half) and native rolls
+- Combat: HP current/max (encounter-tracker-style math input + wound colors), AC, speed, resistances (damage-type toggles)
+- Dynamic HP: Avg / roll max from hit dice + CON; HD pips, spend-and-roll healing, reset
 
-- [ ] Multiclass (`classes` array; MVP uses single `className` / `classSource`; no combined slot math)
-- [ ] Dynamic HP (`hpFormula`)
-- [ ] Equipped items (`inventory[].equipped`)
-- [ ] Optional feature pickers: fighting styles, invocations, maneuvers (`optionalFeatureUids`)
-- [ ] Auto-assigning skill choices from class/background
-- [ ] Auto-seeding widgets onto named features (Second Wind, Ki, etc.)
-- [ ] Live Statgen sync (import is a snapshot)
-- [ ] Multiple named characters
-- [ ] Other proficiencies: resolving player choices (`choose` blocks, e.g. background languages/tools, class tool picks); proficiencies granted only in feature entry text without structured fields; subclass-specific grants not on the class `startingProficiencies` object
-- [ ] Spellcasting: feat `additionalSpells` auto-seed; Warlock short-rest slot refill; spell-points variant; auto-spend slots on Cast; ritual/always-prepared enforcement
+**Features column (right)**
+
+- Top tabs: Class / Subclass / Species / Background / Feats / Custom / Spellcasting (empty auto tabs hidden except Feats)
+- Auto features from class data by level; hide/unhide; custom notes/entries
+- Class **Ability Score Improvement** and **Epic Boon** rows: Choose / Change / Clear Feat (stores `featChoices[featureKey]` + `featHashes`). ASI is picking the Ability Score Improvement feat (or any other feat); no separate +2 UI. Epic Boon picker defaults to Category=EB. Dropping below the grant level leaves the feat until the player removes it.
+- User-attached widgets on any feature: counter, pips, number, rollable, reference
+- Spellcasting tab: attack/DC blocks (primary class), slot pips or pact, Ready + Library drawer, spell picker with class/level pre-filter; **no combined multiclass slot math** — primary class table + manual max overrides
+
+**Left column**
+
+- Other Proficiencies: weapon/armor toggles + auto lists (structured grants) + custom lines for languages/tools
+- Inventory via item picker (quantity + notes; not equipped)
+
+**Key files**
+
+- `js/characters.js` — page init, roster, save
+- `js/characters/characters-ui.js` — main UI/state
+- `js/characters/characters-spellcasting.js`, `characters-classes.js`, `characters-hp.js`, `characters-roster.js`, `characters-features.js`
+- `scss/includes/characters.scss`
+
+---
+
+## Auto-seeding & structured choices (hardest — defer)
+
+These require parsing or resolving **player choices** and **named content** from 5etools data (often `choose` blocks, entry text, or cross-entity lookups). Do not half-implement; expect the most design and edge-case work here.
+
+- [ ] **Skill choices** — auto-assign class/background skill picks from structured `choose` / starting proficiency data
+- [ ] **Other proficiencies choices** — resolve background language/tool picks, class tool picks, text-only grants in feature entries, subclass grants not on `startingProficiencies`
+- [ ] **Optional feature pickers** — fighting styles, invocations, maneuvers, etc. (`optionalFeatureUids`); pick + attach to sheet
+- [ ] **Feature widget auto-seed** — detect named features (Second Wind, Ki, etc.) and attach appropriate widgets automatically
+- [ ] **Spell list auto-seed** — feat `additionalSpells` → spell library; ritual / always-prepared enforcement where data supports it
+- [ ] **Feat ability bonuses → scores** — when picking / changing / removing a feat, apply structured `feat.ability` into the six scores (cap 20; revert on change). Statgen already has this UI (`statgen-ui-comp-asi.js`: ASI +2 or +1/+1 checkboxes, plus feat ability choose). Reverse-engineer that; include Ability Score Improvement and other feats with bonuses (Skill Expert, Actor, etc.). Sheet currently leaves scores as manual edits.
+
+Related spellcasting polish (easier than full auto-seed, but still deferred): Warlock short-rest pact refill; spell-points variant; auto-spend slots on Cast.
+
+---
+
+## Deferred (other — do not fake)
+
+Smaller scope or explicit non-goals for now. State stubs / manual UI only until a dedicated pass.
+
+- [ ] **Combined multiclass spell slots** — full caster table merge; today primary class + overrides only
+- [ ] **Equipped items** — `inventory[].equipped` and any AC/attack interaction
+- [ ] **Live Statgen sync** — ongoing link to Stat Generator (import stays snapshot)
+- [ ] **`hpFormula` string field** — optional display/storage; HP math uses HD pools in Combat today
+
+---
+
+## Minor bugs / improvements
+
+Easy fixes; batch as needed.
+
+- [ ] Other Proficiencies panel: trim redundant copy; surface actual skill/tool/language entries where data exists
+- [ ] Death Saves on Combat Panel/section

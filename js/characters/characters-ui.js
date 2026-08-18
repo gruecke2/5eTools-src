@@ -4,6 +4,7 @@ import {
 	FEATURE_SECTION_BACKGROUND,
 	FEATURE_SECTION_CLASS,
 	FEATURE_SECTION_CUSTOM,
+	FEATURE_SECTION_FEAT,
 	FEATURE_SECTION_RACE,
 	FEATURE_SECTION_SUBCLASS,
 	FEATURE_SECTION_TAB_TITLES,
@@ -19,7 +20,9 @@ import {
 	skillToProp,
 	TAB_SPELLCASTING_TITLE,
 } from "./characters-const.js";
+import {CharactersClassList} from "./characters-classes.js";
 import {CharactersFeatureCollector} from "./characters-features.js";
+import {CharactersHitDice} from "./characters-hp.js";
 import {CharactersCustomFeatureCollection, CharactersInventoryCollection} from "./characters-inventory.js";
 import {CharactersProficienciesCollector} from "./characters-proficiencies.js";
 import {CharactersSpellcasting, CharactersSpellcastingPanel} from "./characters-spellcasting.js";
@@ -51,6 +54,7 @@ export class CharactersUi extends BaseComponent {
 		this._modalFilterRaces = new ModalFilterRaces({namespace: "characters.races", isRadio: true, allData: races});
 		this._modalFilterBackgrounds = new ModalFilterBackgrounds({namespace: "characters.backgrounds", isRadio: true, allData: backgrounds});
 		this._modalFilterClasses = new ModalFilterClasses({namespace: "characters.classes"});
+		this._modalFilterFeats = new ModalFilterFeats({namespace: "characters.feats", isRadio: true, allData: feats});
 		this._modalFilterItems = new ModalFilterItems({namespace: "characters.items", allData: items});
 		this._modalFilterSpells = new ModalFilterSpells({namespace: "characters.spells", allData: spells});
 
@@ -60,6 +64,7 @@ export class CharactersUi extends BaseComponent {
 		this._loadedSubclassIdent = null;
 		this._featureRenderToken = 0;
 		this._featureTabMetas = null;
+		this._wrpFeatRows = null;
 		this._tabMetaSpellcasting = null;
 		this._ixTabSpellcasting = null;
 		this._ixTabCustom = null;
@@ -72,6 +77,13 @@ export class CharactersUi extends BaseComponent {
 
 		this._collectionInventory = null;
 		this._collectionCustomFeatures = null;
+		this._rosterHooks = null;
+		this._rosterRefresh = null;
+	}
+
+	setRosterHooks (hooks) {
+		this._rosterHooks = hooks;
+		this._rosterRefresh?.();
 	}
 
 	async pInit () {
@@ -79,6 +91,7 @@ export class CharactersUi extends BaseComponent {
 			this._modalFilterRaces.pPopulateHiddenWrapper(),
 			this._modalFilterBackgrounds.pPopulateHiddenWrapper(),
 			this._modalFilterClasses.pPopulateHiddenWrapper(),
+			this._modalFilterFeats.pPopulateHiddenWrapper(),
 			this._modalFilterItems.pPopulateHiddenWrapper(),
 			this._modalFilterSpells.pPopulateHiddenWrapper(),
 		]);
@@ -114,6 +127,18 @@ export class CharactersUi extends BaseComponent {
 			});
 			toLoad.state.spellcasting = CharactersSpellcasting.migrate(toLoad.state.spellcasting);
 			if (!Array.isArray(toLoad.state.resistances)) toLoad.state.resistances = [];
+			const migratedClasses = CharactersClassList.migrate(toLoad.state);
+			toLoad.state.classes = migratedClasses.classes;
+			toLoad.state.level = migratedClasses.level;
+			toLoad.state.className = migratedClasses.className;
+			toLoad.state.classSource = migratedClasses.classSource;
+			toLoad.state.subclassName = migratedClasses.subclassName;
+			toLoad.state.subclassShortName = migratedClasses.subclassShortName;
+			toLoad.state.subclassSource = migratedClasses.subclassSource;
+			toLoad.state.hitDice = CharactersHitDice.migrate(toLoad.state.hitDice);
+			if (!Array.isArray(toLoad.state.featHashes)) toLoad.state.featHashes = [];
+			else toLoad.state.featHashes = this._toFeatHashEntries(toLoad.state.featHashes);
+			if (!toLoad.state.featChoices || typeof toLoad.state.featChoices !== "object") toLoad.state.featChoices = {};
 		}
 		super.setStateFrom(toLoad, isOverwrite);
 		if (toLoad.meta) this._proxyAssignSimple("meta", toLoad.meta, true);
@@ -121,7 +146,7 @@ export class CharactersUi extends BaseComponent {
 
 	isSheetStarted () {
 		if ((this._state.name || "").trim()) return true;
-		if (this._state.className) return true;
+		if (this._state.className || this.getClassEntries().some(it => it.className)) return true;
 		if (Parser.ABIL_ABVS.some(ab => this._state[ab] !== 10)) return true;
 		if (this._state.raceHash || this._state.backgroundHash) return true;
 		if (this._state.featHashes?.length) return true;
@@ -143,7 +168,10 @@ export class CharactersUi extends BaseComponent {
 		}
 		if (snapshot.raceHash !== undefined) nxt.raceHash = snapshot.raceHash;
 		if (snapshot.backgroundHash !== undefined) nxt.backgroundHash = snapshot.backgroundHash;
-		if (snapshot.featHashes !== undefined) nxt.featHashes = MiscUtil.copyFast(snapshot.featHashes || []);
+		if (snapshot.featHashes !== undefined) {
+			nxt.featHashes = this._toFeatHashEntries(snapshot.featHashes || []);
+			nxt.featChoices = {};
+		}
 		this._proxyAssignSimple("state", nxt);
 		this._pApplyAutoArmorWeaponProfs().then(null);
 	}
@@ -163,6 +191,27 @@ export class CharactersUi extends BaseComponent {
 		this._loadedSubclassIdent = null;
 		this._spellcastingIdent = null;
 		this._spellcastingIsCaster = false;
+		this._rosterRefresh?.();
+	}
+
+	getClassEntries () {
+		return CharactersClassList.migrate(this._state).classes;
+	}
+
+	_applyClassList (classes) {
+		const nxt = CharactersClassList.syncPrimary({...this._state, classes});
+		this._proxyAssignSimple(
+			"state",
+			{
+				classes: nxt.classes,
+				level: nxt.level,
+				className: nxt.className,
+				classSource: nxt.classSource,
+				subclassName: nxt.subclassName,
+				subclassShortName: nxt.subclassShortName,
+				subclassSource: nxt.subclassSource,
+			},
+		);
 	}
 
 	getPb () {
@@ -224,9 +273,126 @@ export class CharactersUi extends BaseComponent {
 	}
 
 	_getFeats () {
-		return (this._state.featHashes || [])
-			.map(hash => ({hash, feat: this._findByHash(this._feats, UrlUtil.PG_FEATS, hash)}))
+		return this._getFeatHashEntries()
+			.map(({hash}) => ({hash, feat: this._findByHash(this._feats, UrlUtil.PG_FEATS, hash)}))
 			.filter(it => it.feat);
+	}
+
+	_getFeatHashEntries () {
+		return (this._state.featHashes || [])
+			.map((it, ix) => {
+				if (it && typeof it === "object" && it.hash) return {id: it.id || `legacy-${ix}`, hash: it.hash};
+				if (typeof it === "string") return {id: `legacy-${ix}`, hash: it};
+				return null;
+			})
+			.filter(Boolean);
+	}
+
+	_toFeatHashEntries (raw) {
+		return (raw || [])
+			.map(it => {
+				if (it && typeof it === "object" && it.hash) return {id: it.id || CryptUtil.uid(), hash: it.hash};
+				if (typeof it === "string") return {id: CryptUtil.uid(), hash: it};
+				return null;
+			})
+			.filter(Boolean);
+	}
+
+	_getFeatInstances (entries = this._getFeatHashEntries()) {
+		const claimed = new Array(entries.length).fill(null);
+		Object.entries(this._state.featChoices || {}).forEach(([grantKey, hash]) => {
+			const ix = entries.findIndex((it, i) => it.hash === hash && claimed[i] == null);
+			if (ix >= 0) claimed[ix] = grantKey;
+		});
+		return entries
+			.map((entry, ix) => {
+				const feat = this._findByHash(this._feats, UrlUtil.PG_FEATS, entry.hash);
+				if (!feat) return null;
+				return {
+					...entry,
+					ix,
+					feat,
+					grantKey: claimed[ix],
+					key: CharactersFeatureCollector.getFeatKey(entry.id),
+				};
+			})
+			.filter(Boolean);
+	}
+
+	_commitFeatState (entries, choices) {
+		this._proxyAssignSimple("state", {featHashes: entries, featChoices: choices});
+	}
+
+	_addFeatHash (hash) {
+		const entries = this._toFeatHashEntries(this._state.featHashes);
+		entries.push({id: CryptUtil.uid(), hash});
+		this._commitFeatState(entries, {...(this._state.featChoices || {})});
+	}
+
+	_setFeatChoice (grantKey, hash) {
+		const entries = this._toFeatHashEntries(this._state.featHashes);
+		const choices = {...(this._state.featChoices || {})};
+		const inst = this._getFeatInstances(entries).find(it => it.grantKey === grantKey);
+		if (inst) {
+			const ix = entries.findIndex(it => it.id === inst.id);
+			if (ix >= 0) {
+				this.removeFeatureWidgetsForKey(CharactersFeatureCollector.getFeatKey(inst.id));
+				entries[ix] = {...entries[ix], hash};
+			}
+		} else {
+			entries.push({id: CryptUtil.uid(), hash});
+		}
+		choices[grantKey] = hash;
+		this._commitFeatState(entries, choices);
+	}
+
+	_clearFeatChoice (grantKey) {
+		const inst = this._getFeatInstances().find(it => it.grantKey === grantKey);
+		if (!inst) {
+			const choices = {...(this._state.featChoices || {})};
+			if (!(grantKey in choices)) return;
+			delete choices[grantKey];
+			this._commitFeatState(this._toFeatHashEntries(this._state.featHashes), choices);
+			return;
+		}
+		this._removeFeatById(inst.id, grantKey);
+	}
+
+	_removeFeatById (id, grantKey) {
+		const entries = this._toFeatHashEntries(this._state.featHashes);
+		const ix = entries.findIndex(it => it.id === id);
+		if (ix < 0) return;
+		entries.splice(ix, 1);
+		const choices = {...(this._state.featChoices || {})};
+		if (grantKey && choices[grantKey] != null) delete choices[grantKey];
+		const featureKey = CharactersFeatureCollector.getFeatKey(id);
+		this._commitFeatState(entries, choices);
+		this.removeFeatureWidgetsForKey(featureKey);
+		this._unhideFeatureKey(featureKey);
+	}
+
+	_unhideFeatureKey (key) {
+		const hidden = (this._state.hiddenFeatureKeys || []).filter(it => it !== key);
+		if (hidden.length !== (this._state.hiddenFeatureKeys || []).length) this._state.hiddenFeatureKeys = hidden;
+	}
+
+	async _pSelectFeat ({filterExpression = null, grantKey = null} = {}) {
+		if (!filterExpression) this._modalFilterFeats.pageFilter?.filterBox?.reset();
+		const selected = await this._modalFilterFeats.pGetUserSelection({filterExpression});
+		if (!selected?.length) return;
+
+		const li = selected[0];
+		const hash = li.data.hash
+			|| UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_FEATS]({name: li.name, source: li.values.sourceJson});
+		if (!this._findByHash(this._feats, UrlUtil.PG_FEATS, hash)) {
+			throw new Error(`Could not find selected feat: ${JSON.stringify(li)}`);
+		}
+
+		if (grantKey) this._setFeatChoice(grantKey, hash);
+		else {
+			this._addFeatHash(hash);
+			this._setIxActiveTab({ixActiveTab: this._getIxFeatureTab(FEATURE_SECTION_FEAT)});
+		}
 	}
 
 	_findByHash (arr, page, hash) {
@@ -282,6 +448,40 @@ export class CharactersUi extends BaseComponent {
 		return this._loadedSubclass;
 	}
 
+	async _pGetClassFor (entry) {
+		if (!entry?.className || !entry?.classSource) return null;
+		const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_CLASSES]({
+			name: entry.className,
+			source: entry.classSource,
+		});
+		return DataLoader.pCacheAndGet(UrlUtil.PG_CLASSES, entry.classSource, hash, {isSilent: true});
+	}
+
+	async _pGetSubclassFor (entry) {
+		if (!entry?.subclassName || !entry?.subclassSource || !entry?.className) return null;
+		const scMeta = {
+			name: entry.subclassName,
+			shortName: entry.subclassShortName || entry.subclassName,
+			source: entry.subclassSource,
+			className: entry.className,
+			classSource: entry.classSource,
+		};
+		const hash = UrlUtil.URL_TO_HASH_BUILDER["subclass"](scMeta);
+		return DataLoader.pCacheAndGet("subclass", entry.subclassSource, hash, {isSilent: true});
+	}
+
+	loadCharacterState (toLoad) {
+		this._loadedClass = null;
+		this._loadedClassIdent = null;
+		this._loadedSubclass = null;
+		this._loadedSubclassIdent = null;
+		this._spellcastingIdent = null;
+		this._spellcastingIsCaster = false;
+		if (toLoad) this.setStateFrom(toLoad, true);
+		else this._setState(this._getDefaultState());
+		this._rosterRefresh?.();
+	}
+
 	render (parent) {
 		parent.vee.empty();
 
@@ -301,6 +501,34 @@ export class CharactersUi extends BaseComponent {
 	}
 
 	_render_toolbar () {
+		const selRoster = veT`<select class="ve-form-control ve-input-xs ve-charsheet__sel-roster" title="Switch character"></select>`;
+		const btnNew = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="New character"><span class="glyphicon glyphicon-plus"></span></button>`
+			.vee.onn("click", () => this._rosterHooks?.pNew?.());
+		const btnDup = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="Duplicate character"><span class="glyphicon glyphicon-duplicate"></span></button>`
+			.vee.onn("click", () => this._rosterHooks?.pDuplicate?.());
+		const btnDel = veT`<button class="ve-btn ve-btn-xs ve-btn-danger" title="Delete character"><span class="glyphicon glyphicon-trash"></span></button>`
+			.vee.onn("click", () => this._rosterHooks?.pDelete?.());
+
+		const hkRoster = () => {
+			if (!this._rosterHooks) return;
+			const entries = this._rosterHooks.getEntries?.() || [];
+			const activeId = this._rosterHooks.getActiveId?.();
+			selRoster.vee.empty();
+			entries.forEach(it => {
+				const name = it.id === activeId
+					? ((this._state.name || "").trim() || it.name || "Unnamed")
+					: (it.name || "Unnamed");
+				veT`<option value="${it.id.qq()}" ${it.id === activeId ? "selected" : ""}></option>`
+					.vee.txt(name)
+					.vee.appendTo(selRoster);
+			});
+			selRoster.vee.toggle(entries.length > 1);
+		};
+		this._rosterRefresh = hkRoster;
+		this._addHookBase("name", hkRoster);
+		hkRoster();
+		selRoster.vee.onn("change", () => this._rosterHooks?.pSwitch?.(selRoster.vee.val()));
+
 		const btnSave = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="Save to File"><span class="glyphicon glyphicon-download"></span></button>`
 			.vee.onn("click", () => {
 				const namePart = (this._state.name || "character").toLowerCase().replace(/[^\w]+/g, "-");
@@ -312,13 +540,17 @@ export class CharactersUi extends BaseComponent {
 				const {jsons, errors} = await InputUiUtil.pGetUserUploadJson({expectedFileTypes: [CHARACTERS_FILE_TYPE]});
 				DataUtil.doHandleFileLoadErrorsGeneric(errors);
 				if (!jsons?.length) return;
-				this.setStateFrom(jsons[0], true);
+				this.loadCharacterState(jsons[0]);
 			});
 
 		const btnReset = veT`<button class="ve-btn ve-btn-xs ve-btn-danger" title="Reset All"><span class="glyphicon glyphicon-refresh"></span></button>`
 			.vee.onn("click", () => this.doResetAll());
 
 		return veT`<div class="ve-flex-v-center ve-mb-2">
+			<div class="ve-flex-v-center ve-mr-2 ve-min-w-0">
+				${selRoster}
+				<div class="ve-btn-group ve-ml-1 ve-no-shrink">${btnNew}${btnDup}${btnDel}</div>
+			</div>
 			<div class="ve-btn-group ve-mr-2">${btnSave}${btnLoad}</div>
 			<div class="ve-btn-group">${btnReset}</div>
 		</div>`;
@@ -365,63 +597,41 @@ export class CharactersUi extends BaseComponent {
 		this._addHookBase("level", hkPb);
 		hkPb();
 
-		const dispClass = veT`<div class="ve-flex-v-center ve-min-w-0"></div>`;
-		const hkClass = () => {
-			if (!this._state.className) {
-				dispClass.vee.html(`<i class="ve-muted">No class selected</i>`);
-				return;
-			}
-			const classTag = `{@class ${this._state.className}|${this._state.classSource}}`;
-			if (this._state.subclassShortName || this._state.subclassName) {
-				const scName = this._state.subclassShortName || this._state.subclassName;
-				const scTag = `{@subclass ${scName}|${this._state.className}|${this._state.classSource}|${this._state.subclassSource}}`;
-				dispClass.vee.html(Renderer.get().render(`${classTag} (${scTag})`));
-				return;
-			}
-			dispClass.vee.html(Renderer.get().render(classTag));
+		const dispLevelTotal = veT`<span class="ve-bold ve-mr-1"></span>`;
+		const wrpClassRows = veT`<div class="ve-flex-col ve-w-100"></div>`;
+		const btnAddClass = veT`<button class="ve-btn ve-btn-xxs ve-btn-default" title="Add a multiclass"><span class="glyphicon glyphicon-plus"></span> Class</button>`
+			.vee.onn("click", () => {
+				const classes = this.getClassEntries();
+				if (!classes.length) classes.push(CharactersClassList.getEmptyEntry());
+				classes.push(CharactersClassList.getEmptyEntry());
+				this._applyClassList(classes);
+			});
+
+		const hkClasses = () => {
+			const classes = this.getClassEntries();
+			const isMulti = classes.length > 1;
+			iptLevel.vee.toggle(!isMulti);
+			dispLevelTotal.vee.txt(isMulti ? `${this._state.level}` : "").vee.toggle(isMulti);
+			wrpClassRows.vee.empty();
+			(classes.length ? classes : [CharactersClassList.getEmptyEntry()]).forEach((entry, ix) => {
+				wrpClassRows.vee.appends(this._render_classRow(entry, ix, isMulti));
+			});
 		};
-		this._addHookBase("className", hkClass);
-		this._addHookBase("classSource", hkClass);
-		this._addHookBase("subclassName", hkClass);
-		this._addHookBase("subclassShortName", hkClass);
-		this._addHookBase("subclassSource", hkClass);
-		hkClass();
-
-		const btnClass = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="Choose Class and Subclass"><span class="glyphicon glyphicon-search"></span></button>`
-			.vee.onn("click", () => this._pSelectClass());
-
-		const btnClearClass = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="Clear Class"><span class="glyphicon glyphicon-remove"></span></button>`
-			.vee.onn("click", () => {
-				this._proxyAssignSimple(
-					"state",
-					{
-						className: null,
-						classSource: null,
-						subclassName: null,
-						subclassShortName: null,
-						subclassSource: null,
-					},
-				);
-				this._pApplyAutoArmorWeaponProfs().then(null);
-			});
-		const hkHasClass = () => btnClearClass.vee.toggle(!!this._state.className);
-		this._addHookBase("className", hkHasClass);
-		hkHasClass();
-
-		const btnClearSubclass = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="Clear Subclass">Sc</button>`
-			.vee.onn("click", () => {
-				this._proxyAssignSimple(
-					"state",
-					{
-						subclassName: null,
-						subclassShortName: null,
-						subclassSource: null,
-					},
-				);
-			});
-		const hkHasSubclass = () => btnClearSubclass.vee.toggle(!!this._state.subclassName);
-		this._addHookBase("subclassName", hkHasSubclass);
-		hkHasSubclass();
+		this._addHookBase("classes", hkClasses);
+		this._addHookBase("className", hkClasses);
+		this._addHookBase("level", () => {
+			const classes = this.getClassEntries();
+			if (classes.length === 1 && classes[0].level !== this._state.level) {
+				this._applyClassList([{...classes[0], level: this._state.level}]);
+				return;
+			}
+			if (classes.length > 1) {
+				const total = CharactersClassList.getTotalLevel(classes);
+				if (this._state.level !== total) this._state.level = total;
+			}
+			dispLevelTotal.vee.txt(`${this._state.level}`);
+		});
+		hkClasses();
 
 		const dispRace = veT`<div class="ve-flex-v-center ve-min-w-0"></div>`;
 		const hkRace = () => {
@@ -461,15 +671,12 @@ export class CharactersUi extends BaseComponent {
 			<div class="ve-flex-v-center ve-mb-2">${iptName}</div>
 			<div class="ve-flex-v-center ve-mb-1">
 				<div class="ve-mr-2 ve-no-shrink ve-w-80p">Level</div>
-				${iptLevel}
+				${iptLevel}${dispLevelTotal}
 				<div class="ve-ml-3 ve-mr-1 ve-no-shrink">PB</div>
 				${dispPb}
+				<div class="ve-ml-auto ve-no-shrink">${btnAddClass}</div>
 			</div>
-			<div class="ve-flex-v-center ve-mb-1">
-				<div class="ve-mr-2 ve-no-shrink ve-w-80p">Class</div>
-				<div class="ve-btn-group ve-mr-2 ve-no-shrink">${btnClass}${btnClearClass}${btnClearSubclass}</div>
-				${dispClass}
-			</div>
+			${wrpClassRows}
 			<div class="ve-flex-v-center ve-mb-1">
 				<div class="ve-mr-2 ve-no-shrink ve-w-80p">Species</div>
 				<div class="ve-btn-group ve-mr-2 ve-no-shrink">${btnRace}${btnClearRace}</div>
@@ -480,6 +687,65 @@ export class CharactersUi extends BaseComponent {
 				<div class="ve-btn-group ve-mr-2 ve-no-shrink">${btnBackground}${btnClearBackground}</div>
 				${dispBackground}
 			</div>
+		</div>`;
+	}
+
+	_render_classRow (entry, ix, isMulti) {
+		const dispClass = veT`<div class="ve-flex-v-center ve-min-w-0"></div>`;
+		if (!entry.className) {
+			dispClass.vee.html(`<i class="ve-muted">${ix ? "No multiclass selected" : "No class selected"}</i>`);
+		} else {
+			const classTag = `{@class ${entry.className}|${entry.classSource}}`;
+			if (entry.subclassShortName || entry.subclassName) {
+				const scName = entry.subclassShortName || entry.subclassName;
+				const scTag = `{@subclass ${scName}|${entry.className}|${entry.classSource}|${entry.subclassSource}}`;
+				dispClass.vee.html(Renderer.get().render(`${classTag} (${scTag})`));
+			} else {
+				dispClass.vee.html(Renderer.get().render(classTag));
+			}
+		}
+
+		const iptRowLevel = veT`<input class="ve-form-control ve-input-xs form-control--minimal ve-text-center ve-mr-1" type="number" min="1" max="20" title="Class level" style="width: 40px;">`
+			.vee.val(`${entry.level || 1}`)
+			.vee.toggle(!!isMulti)
+			.vee.onn("change", () => {
+				const n = Math.max(1, Math.min(20, Number(iptRowLevel.vee.val()) || 1));
+				const classes = this.getClassEntries();
+				if (!classes[ix]) return;
+				classes[ix] = {...classes[ix], level: n};
+				this._applyClassList(classes);
+			});
+
+		const btnClass = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="Choose Class and Subclass"><span class="glyphicon glyphicon-search"></span></button>`
+			.vee.onn("click", () => this._pSelectClass(ix));
+		const btnClearClass = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="${ix ? "Remove Class" : "Clear Class"}"><span class="glyphicon glyphicon-remove"></span></button>`
+			.vee.toggle(!!(entry.className || ix))
+			.vee.onn("click", () => {
+				const classes = this.getClassEntries();
+				if (ix) this._applyClassList(classes.filter((_, i) => i !== ix));
+				else if (classes.length > 1) this._applyClassList(classes.slice(1));
+				else this._applyClassList([]);
+				this._pApplyAutoArmorWeaponProfs().then(null);
+			});
+		const btnClearSubclass = veT`<button class="ve-btn ve-btn-xs ve-btn-default" title="Clear Subclass">Sc</button>`
+			.vee.toggle(!!entry.subclassName)
+			.vee.onn("click", () => {
+				const classes = this.getClassEntries();
+				if (!classes[ix]) return;
+				classes[ix] = {
+					...classes[ix],
+					subclassName: null,
+					subclassShortName: null,
+					subclassSource: null,
+				};
+				this._applyClassList(classes);
+			});
+
+		return veT`<div class="ve-flex-v-center ve-mb-1">
+			<div class="ve-mr-2 ve-no-shrink ve-w-80p">${ix ? "Multi" : "Class"}</div>
+			${iptRowLevel}
+			<div class="ve-btn-group ve-mr-2 ve-no-shrink">${btnClass}${btnClearClass}${btnClearSubclass}</div>
+			${dispClass}
 		</div>`;
 	}
 
@@ -615,15 +881,16 @@ export class CharactersUi extends BaseComponent {
 			},
 		);
 
-		const dispHitDice = veT`<span class="ve-muted ve-small"></span>`;
-		const hkHitDice = async () => {
-			const cls = await this._pGetClass();
-			const html = CharactersFeatureCollector.getHitDiceText(cls);
-			dispHitDice.vee.html(html ? `HD ${html}` : "");
-		};
-		this._addHookBase("className", hkHitDice);
-		this._addHookBase("classSource", hkHitDice);
-		hkHitDice().then(null);
+		const btnHpAvg = veT`<button class="ve-btn ve-btn-xxs ve-btn-default" title="Set max HP from averages (1st level max, later average + CON)">Avg</button>`
+			.vee.onn("click", () => this._pApplyHpAverage());
+		const btnHpRoll = veT`<button class="ve-btn ve-btn-xxs ve-btn-default" title="Roll max HP (1st level max, later dice + CON)"><span class="fal fa-dice"></span></button>`
+			.vee.onn("click", () => this._pApplyHpRolled());
+		const wrpHitDice = veT`<div class="ve-flex-v-center ve-flex-wrap ve-charsheet__hd-row"></div>`;
+		const hkHitDice = () => this._pSyncHitDiceUi(wrpHitDice);
+		this._addHookBase("hitDice", hkHitDice);
+		this._addHookBase("classes", () => this._pSyncHitDiceFromClasses().then(() => hkHitDice()));
+		this._addHookBase("className", () => this._pSyncHitDiceFromClasses().then(() => hkHitDice()));
+		this._pSyncHitDiceFromClasses().then(() => hkHitDice());
 
 		const wrpResist = veT`<div class="ve-charsheet__resist-toggles"></div>`;
 		const resistBtns = Parser.DMG_TYPES.map(typ => {
@@ -662,13 +929,124 @@ export class CharactersUi extends BaseComponent {
 					<div class="ve-mr-1 ve-small ve-no-shrink">Spd</div>
 					${iptSpeed}
 				</div>
-				${dispHitDice}
+				<div class="ve-btn-group ve-no-shrink">${btnHpAvg}${btnHpRoll}</div>
+			</div>
+			<div class="ve-flex-v-center ve-charsheet__combat-row ve-mt-1">
+				<div class="ve-mr-1 ve-small ve-no-shrink">HD</div>
+				${wrpHitDice}
 			</div>
 			<div class="ve-flex-v-top ve-charsheet__combat-row ve-mt-1">
 				<div class="ve-mr-1 ve-small ve-no-shrink ve-pt-1" title="Damage resistances">Resist</div>
 				${wrpResist}
 			</div>
 		</div>`;
+	}
+
+	async _pGetHitDicePools () {
+		const pools = [];
+		for (const entry of this.getClassEntries()) {
+			const cls = await this._pGetClassFor(entry);
+			if (!cls?.hd) continue;
+			pools.push({hd: cls.hd, level: entry.level});
+		}
+		return CharactersHitDice.poolsFromClasses(pools);
+	}
+
+	async _pSyncHitDiceFromClasses () {
+		const pools = await this._pGetHitDicePools();
+		this._state.hitDice = CharactersHitDice.applyAuto(this._state.hitDice, pools);
+	}
+
+	async _pSyncHitDiceUi (wrpHitDice) {
+		const hd = CharactersHitDice.migrate(this._state.hitDice);
+		wrpHitDice.vee.empty();
+		const faces = Object.keys(hd).map(Number).sort((a, b) => a - b);
+		if (!faces.length) {
+			wrpHitDice.vee.html(`<span class="ve-muted ve-small">No hit dice</span>`);
+			return;
+		}
+		faces.forEach(face => {
+			const row = hd[face];
+			const wrpPips = veT`<div class="ve-flex-v-center"></div>`;
+			for (let i = 0; i < row.max; ++i) {
+				const isOn = i < row.current;
+				const btn = veT`<button class="ve-btn ve-btn-xxs ve-charsheet__widget-pip ${isOn ? "ve-btn-primary" : "ve-btn-default"}" title="${isOn ? "Remaining — click to spend" : "Spent"}">&nbsp;</button>`
+					.vee.onn("click", () => this._toggleHitDiePip(face, i));
+				wrpPips.vee.appends(btn);
+			}
+			const btnRoll = veT`<button class="ve-btn ve-btn-xxs ve-btn-default ve-ml-1" title="Spend and roll a d${face} + CON"><span class="fal fa-dice"></span></button>`
+				.vee.prop("disabled", row.current <= 0)
+				.vee.onn("click", () => this._pRollHitDie(face));
+			wrpHitDice.vee.appends(veT`<div class="ve-flex-v-center ve-mr-2 ve-mb-1">
+				<div class="ve-small ve-bold ve-mr-1">d${face}</div>
+				${wrpPips}
+				${btnRoll}
+			</div>`);
+		});
+		const btnReset = veT`<button class="ve-btn ve-btn-xxs ve-btn-default" title="Refill hit dice">Reset</button>`
+			.vee.onn("click", () => this._resetHitDice());
+		wrpHitDice.vee.appends(btnReset);
+	}
+
+	_toggleHitDiePip (faces, ixPip) {
+		const hd = CharactersHitDice.migrate(this._state.hitDice);
+		const row = hd[faces];
+		if (!row) return;
+		row.current = ixPip < row.current ? ixPip : ixPip + 1;
+		this._state.hitDice = hd;
+	}
+
+	async _pRollHitDie (faces) {
+		const hd = CharactersHitDice.migrate(this._state.hitDice);
+		const row = hd[faces];
+		if (!row?.current) return;
+		const conMod = this.getAbilityMod("con");
+		const expr = `1d${faces}${conMod >= 0 ? "+" : ""}${conMod}`;
+		const result = await Renderer.dice.pRollEntry(
+			{toRoll: expr},
+			{name: this._state.name || "Character", label: `Hit Die (d${faces})`},
+		);
+		if (result == null) return;
+		row.current = Math.max(0, row.current - 1);
+		this._state.hitDice = hd;
+		const cur = this._state.hpCurrent == null ? 0 : this._state.hpCurrent;
+		const max = this._state.hpMax;
+		const nxt = cur + result;
+		this._state.hpCurrent = max == null ? nxt : Math.min(max, nxt);
+	}
+
+	_resetHitDice () {
+		const hd = CharactersHitDice.migrate(this._state.hitDice);
+		Object.values(hd).forEach(row => { row.current = row.max; });
+		this._state.hitDice = hd;
+	}
+
+	async _pApplyHpAverage () {
+		const pools = await this._pGetHitDicePools();
+		if (!pools.length) return;
+		const max = CharactersHitDice.computeAverageMax({pools, conMod: this.getAbilityMod("con")});
+		this._state.hpMax = max;
+		if (this._state.hpCurrent == null) this._state.hpCurrent = max;
+	}
+
+	async _pApplyHpRolled () {
+		const pools = await this._pGetHitDicePools();
+		if (!pools.length) return;
+		const conMod = this.getAbilityMod("con");
+		const later = CharactersHitDice.laterLevelsExpression({pools, conMod});
+		const first = pools[0];
+		const firstMax = first.faces + conMod;
+		let laterTotal = 0;
+		if (later) {
+			laterTotal = await Renderer.dice.pRollEntry(
+				{toRoll: later},
+				{name: this._state.name || "Character", label: "Hit Points (levels after 1st)"},
+			);
+			if (laterTotal == null) return;
+		}
+		const max = Math.max(1, firstMax + (laterTotal || 0));
+		this._state.hpMax = max;
+		if (this._state.hpCurrent == null) this._state.hpCurrent = max;
 	}
 
 	_toggleResistance (typ) {
@@ -910,8 +1288,19 @@ export class CharactersUi extends BaseComponent {
 		FEATURE_SECTIONS.forEach(section => {
 			this._featureTabMetas[section].wrpTab.vee.addClass("ve-p-2");
 		});
-		FEATURE_SECTIONS_AUTO.forEach(section => this._featureTabMetas[section].btnTab.vee.hide());
+		FEATURE_SECTIONS_AUTO.forEach(section => {
+			if (section !== FEATURE_SECTION_FEAT) this._featureTabMetas[section].btnTab.vee.hide();
+		});
 		this._tabMetaSpellcasting.btnTab.vee.hide();
+
+		const wrpFeatRows = veT`<div class="ve-flex-col ve-w-100"></div>`;
+		this._wrpFeatRows = wrpFeatRows;
+		const btnAddFeat = veT`<button class="ve-btn ve-btn-xs ve-btn-default ve-mb-2"><span class="glyphicon glyphicon-plus"></span> Add Feat</button>`
+			.vee.onn("click", () => this._pSelectFeat());
+		veT(this._featureTabMetas[FEATURE_SECTION_FEAT].wrpTab)`
+			${btnAddFeat}
+			${wrpFeatRows}
+		`;
 
 		const wrpCustom = veT`<div class="ve-flex-col ve-w-100"></div>`;
 		this._collectionCustomFeatures = new CharactersCustomFeatureCollection(this, wrpCustom);
@@ -943,7 +1332,9 @@ export class CharactersUi extends BaseComponent {
 			"raceHash",
 			"backgroundHash",
 			"featHashes",
+			"featChoices",
 			"hiddenFeatureKeys",
+			"classes",
 		]
 			.forEach(prop => this._addHookBase(prop, pRenderAuto));
 		pRenderAuto();
@@ -955,7 +1346,7 @@ export class CharactersUi extends BaseComponent {
 			"subclassName",
 			"subclassShortName",
 			"subclassSource",
-			"level",
+			"classes",
 			...Parser.ABIL_ABVS,
 		]
 			.forEach(prop => this._addHookBase(prop, pSyncSpells));
@@ -967,21 +1358,38 @@ export class CharactersUi extends BaseComponent {
 
 	async _pRenderAutoFeatures () {
 		const token = ++this._featureRenderToken;
-		const cls = await this._pGetClass();
-		const sc = await this._pGetSubclass();
-		if (token !== this._featureRenderToken) return;
 
 		const race = this._getRace();
 		const background = this._getBackground();
-		const feats = this._getFeats();
+		const featInstances = this._getFeatInstances();
 		const hidden = new Set(this._state.hiddenFeatureKeys || []);
 
+		const classFeatures = [];
+		const subclassFeatures = [];
+		for (const entry of this.getClassEntries()) {
+			const entryCls = await this._pGetClassFor(entry);
+			const entrySc = await this._pGetSubclassFor(entry);
+			if (token !== this._featureRenderToken) return;
+			const classGroup = entry.className || "Class";
+			classFeatures.push(
+				...CharactersFeatureCollector.collectClassFeatures(entryCls, entry.level)
+					.map(f => ({...f, group: classGroup})),
+			);
+			if (entrySc) {
+				subclassFeatures.push(
+					...CharactersFeatureCollector.collectSubclassFeatures(entrySc, entry.level)
+						.map(f => ({...f, group: entrySc.name || entry.subclassName})),
+				);
+			}
+		}
+
 		const features = [
-			...CharactersFeatureCollector.collectClassFeatures(cls, this._state.level),
-			...CharactersFeatureCollector.collectSubclassFeatures(sc, this._state.level),
+			...classFeatures,
+			...subclassFeatures,
 			...CharactersFeatureCollector.collectRace(race, this._state.raceHash),
 			...CharactersFeatureCollector.collectEntityEntries(background, this._state.backgroundHash, FEATURE_SECTION_BACKGROUND),
-			...feats.flatMap(({feat, hash}) => CharactersFeatureCollector.collectFeat(feat, hash)),
+			...featInstances.flatMap(({feat, id, grantKey}) => CharactersFeatureCollector.collectFeat(feat, id)
+				.map(f => ({...f, grantKey}))),
 		];
 
 		const bySection = {};
@@ -990,9 +1398,24 @@ export class CharactersUi extends BaseComponent {
 		FEATURE_SECTIONS_AUTO.forEach(section => {
 			const tabMeta = this._featureTabMetas[section];
 			const list = bySection[section] || [];
+
+			if (section === FEATURE_SECTION_FEAT) {
+				this._wrpFeatRows.vee.empty();
+				list.forEach(feature => {
+					this._wrpFeatRows.vee.appends(this._render_featureRow(feature, hidden.has(feature.key)));
+				});
+				tabMeta.btnTab.vee.show();
+				return;
+			}
+
 			tabMeta.wrpTab.vee.empty();
 
+			let lastGroup = null;
 			list.forEach(feature => {
+				if (feature.group && feature.group !== lastGroup) {
+					tabMeta.wrpTab.vee.appends(`<div class="ve-bold ve-small ve-mt-2 ve-mb-1">${feature.group.qq()}</div>`);
+					lastGroup = feature.group;
+				}
 				tabMeta.wrpTab.vee.appends(this._render_featureRow(feature, hidden.has(feature.key)));
 			});
 
@@ -1030,6 +1453,10 @@ export class CharactersUi extends BaseComponent {
 		});
 		const btnHide = veT`<button class="ve-btn ve-btn-xxs ve-btn-default" title="${isHidden ? "Show Feature" : "Hide Feature"}"><span class="glyphicon glyphicon-${isHidden ? "eye-open" : "eye-close"}"></span></button>`
 			.vee.onn("click", () => this._toggleHiddenFeature(feature.key));
+		const btnRemoveFeat = feature.section === FEATURE_SECTION_FEAT
+			? veT`<button class="ve-btn ve-btn-xxs ve-btn-danger" title="Remove Feat"><span class="glyphicon glyphicon-trash"></span></button>`
+				.vee.onn("click", () => this._removeFeatById(feature.featId, feature.grantKey))
+			: null;
 
 		const title = feature.level != null
 			? `Level ${feature.level}: ${feature.name}`
@@ -1038,7 +1465,7 @@ export class CharactersUi extends BaseComponent {
 		if (isHidden) {
 			return veT`<div class="ve-flex-v-center ve-charsheet__feature ve-py-1">
 				<div class="ve-muted ve-italic ve-flex-grow-1">${title.qq()}</div>
-				<div class="ve-no-shrink">${btnHide}</div>
+				<div class="ve-btn-group ve-no-shrink">${btnRemoveFeat || ""}${btnHide}</div>
 			</div>`;
 		}
 
@@ -1055,12 +1482,37 @@ export class CharactersUi extends BaseComponent {
 			entries: feature.entries || [],
 		});
 
+		const wrpGrant = feature.featGrant ? this._render_featGrantControls(feature) : null;
+
 		return veT`<div class="ve-charsheet__feature ve-py-1">
 			<div class="ve-flex-v-top">
-				<div class="ve-flex-grow-1 ve-min-w-0">${rendered}</div>
-				<div class="ve-btn-group ve-no-shrink ve-ml-2">${btnAddWidget}${btnHide}</div>
+				<div class="ve-flex-grow-1 ve-min-w-0">${rendered}${wrpGrant || ""}</div>
+				<div class="ve-btn-group ve-no-shrink ve-ml-2">${btnAddWidget}${btnRemoveFeat || ""}${btnHide}</div>
 			</div>
 			${wrpWidgets}
+		</div>`;
+	}
+
+	_render_featGrantControls (feature) {
+		const hash = (this._state.featChoices || {})[feature.key];
+		const feat = this._findByHash(this._feats, UrlUtil.PG_FEATS, hash);
+		const filterExpression = CharactersFeatureCollector.getFeatGrantFilterExpression(feature.featGrant);
+
+		if (!feat) {
+			const btnChoose = veT`<button class="ve-btn ve-btn-xxs ve-btn-default"><span class="glyphicon glyphicon-search"></span> Choose Feat</button>`
+				.vee.onn("click", () => this._pSelectFeat({filterExpression, grantKey: feature.key}));
+			return veT`<div class="ve-mt-1">${btnChoose}</div>`;
+		}
+
+		const disp = veT`<div class="ve-flex-v-center ve-min-w-0 ve-mr-2">${Renderer.get().render(`{@feat ${feat.name}|${feat.source}}`)}</div>`;
+		const btnChange = veT`<button class="ve-btn ve-btn-xxs ve-btn-default" title="Change Feat"><span class="glyphicon glyphicon-search"></span></button>`
+			.vee.onn("click", () => this._pSelectFeat({filterExpression, grantKey: feature.key}));
+		const btnClear = veT`<button class="ve-btn ve-btn-xxs ve-btn-default" title="Clear Feat"><span class="glyphicon glyphicon-remove"></span></button>`
+			.vee.onn("click", () => this._clearFeatChoice(feature.key));
+
+		return veT`<div class="ve-flex-v-center ve-mt-1">
+			${disp}
+			<div class="ve-btn-group ve-no-shrink">${btnChange}${btnClear}</div>
 		</div>`;
 	}
 
@@ -1096,13 +1548,15 @@ export class CharactersUi extends BaseComponent {
 		return btn;
 	}
 
-	async _pSelectClass () {
+	async _pSelectClass (ix = 0) {
+		const classes = this.getClassEntries();
+		const cur = classes[ix] || CharactersClassList.getEmptyEntry();
 		const selected = await this._modalFilterClasses.pGetUserSelection({
-			selectedClass: this._state.className
-				? {name: this._state.className, source: this._state.classSource}
+			selectedClass: cur.className
+				? {name: cur.className, source: cur.classSource}
 				: null,
-			selectedSubclass: this._state.subclassName
-				? {name: this._state.subclassName, source: this._state.subclassSource}
+			selectedSubclass: cur.subclassName
+				? {name: cur.subclassName, source: cur.subclassSource}
 				: null,
 		});
 
@@ -1110,20 +1564,30 @@ export class CharactersUi extends BaseComponent {
 
 		const cls = selected.class;
 		const sc = selected.subclass || null;
-		const isClassChange = this._state.className !== cls.name || this._state.classSource !== cls.source;
-
-		const nxt = {
+		const isClassChange = cur.className !== cls.name || cur.classSource !== cls.source;
+		const nxtEntry = {
+			...cur,
+			id: cur.id || CryptUtil.uid(),
 			className: cls.name,
 			classSource: cls.source,
 			subclassName: sc?.name ?? null,
 			subclassShortName: sc?.shortName ?? sc?.name ?? null,
 			subclassSource: sc?.source ?? null,
+			level: cur.level || 1,
 		};
 
-		if (isClassChange) {
+		if (!classes.length) {
+			nxtEntry.level = Math.max(1, Math.min(20, Number(this._state.level) || 1));
+			classes.push(nxtEntry);
+		} else if (!classes[ix]) classes.push(nxtEntry);
+		else classes[ix] = nxtEntry;
+
+		if (!ix && isClassChange) {
+			const saveNxt = {};
 			Parser.ABIL_ABVS.forEach(ab => {
-				nxt[saveToProp(ab)] = (cls.proficiency || []).includes(ab);
+				saveNxt[saveToProp(ab)] = (cls.proficiency || []).includes(ab);
 			});
+			this._proxyAssignSimple("state", saveNxt);
 		}
 
 		this._loadedClass = null;
@@ -1131,8 +1595,8 @@ export class CharactersUi extends BaseComponent {
 		this._loadedSubclass = null;
 		this._loadedSubclassIdent = null;
 
-		this._proxyAssignSimple("state", nxt);
-		if (isClassChange) this._pApplyAutoArmorWeaponProfs().then(null);
+		this._applyClassList(classes);
+		if (!ix && isClassChange) this._pApplyAutoArmorWeaponProfs().then(null);
 		this._setIxActiveTab({ixActiveTab: this._getIxFeatureTab(sc ? FEATURE_SECTION_SUBCLASS : FEATURE_SECTION_CLASS)});
 	}
 
@@ -1192,7 +1656,7 @@ export class CharactersUi extends BaseComponent {
 		const meta = CharactersSpellcasting.getCasterMeta({
 			cls,
 			sc,
-			level: this._state.level,
+			level: CharactersClassList.getPrimaryLevel(this.getClassEntries()),
 			getAbilityMod: ab => this.getAbilityMod(ab),
 		});
 		this._spellcastingMode = meta.mode || "known";
@@ -1419,6 +1883,7 @@ export class CharactersUi extends BaseComponent {
 			raceHash: null,
 			backgroundHash: null,
 			featHashes: [],
+			featChoices: {},
 
 			hpCurrent: null,
 			hpMax: null,
@@ -1437,7 +1902,8 @@ export class CharactersUi extends BaseComponent {
 			},
 
 			// Forward-compatible stubs
-			classes: null,
+			classes: [],
+			hitDice: {},
 			spellcasting: CharactersSpellcasting.getEmptyState(),
 			hpFormula: null,
 			optionalFeatureUids: [],
