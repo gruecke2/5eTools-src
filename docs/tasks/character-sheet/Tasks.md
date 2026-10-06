@@ -42,6 +42,7 @@ Shipped and working. Do not re-implement unless fixing a bug.
 - `js/characters/characters-ui.js` — main UI/state
 - `js/characters/characters-spellcasting.js`, `characters-classes.js`, `characters-hp.js`, `characters-roster.js`, `characters-features.js`, `characters-equipment.js`, `characters-actions.js`
 - `scss/includes/characters.scss`
+- **`docs/tasks/character-sheet/ENGINE.md`** — hash/UID identity, `.charsheet` contract, clone bridge. Read this before adding persisted fields or import/export.
 
 ---
 
